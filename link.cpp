@@ -314,6 +314,10 @@ void Link::onPacket(const uint8_t *buf, uint8_t len) {
       return;
     }
     case LM_SQUAD: {
+      // Late pairing retries are common on a lossy radio. After READY they
+      // must not put a waiting guest back in READY, drop its queued move, or
+      // reopen a finished fight. Only collect squads during the handshake.
+      if (state != LINK_SQUADS && state != LINK_HANDSHAKE) return;
       if (n < 1 + sizeof(LinkMon)) return;
       uint8_t idx = body[0];
       if (idx >= TRAINER_TEAM_MAX) return;
