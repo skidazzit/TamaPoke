@@ -77,6 +77,11 @@ file picker, and reopen it to verify every byte. Only then does the
 page checks the boot metadata again. It reads the new app back afterward.
 An interrupted backup or failed check can never unlock flashing.
 
+The custom updater also has an expanded **Live USB update log** showing
+timestamped Esptool connection messages, partition/OTA inspection stages,
+backup and firmware progress milestones, and errors. Use **Copy log** to
+share diagnostics. Logs stay in the browser and are not uploaded.
+
 The custom updater sets `eraseAll: false` and writes only the app0 image,
 never NVS, FFAT or the partition table. A mismatched app may still fail to
 boot or read saved data. A selected OTA slot cannot completely prove the

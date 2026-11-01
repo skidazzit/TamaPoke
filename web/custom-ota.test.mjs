@@ -73,14 +73,16 @@ function fixture({ layout = partitions, ota = otadata, failBackup = false,
   const originalNvs = board.slice(0x9000, 0xe000);
   const elements = new Map();
   for (const id of ['custom-file', 'custom-connect', 'custom-backup',
-                    'custom-flash', 'custom-disconnect', 'custom-status']) {
+                    'custom-flash', 'custom-disconnect', 'custom-status',
+                    'custom-log', 'custom-copy-log']) {
     elements.set(id, {
       disabled: true, textContent: '', files: [],
       addEventListener(event, listener) { this[event] = listener; },
     });
   }
 
-  const calls = { ports: 0, writes: [], backups: 0, reopens: 0, disconnects: 0 };
+  const calls = { ports: 0, writes: [], backups: 0, reopens: 0, disconnects: 0,
+                  copiedLog: null };
   const savedChunks = [];
   let savedBytes = null;
   const handle = {
@@ -113,8 +115,11 @@ function fixture({ layout = partitions, ota = otadata, failBackup = false,
     constructor(options) {
       assert.equal(options.baudrate, 115200, 'safe USB connection speed');
       assert.equal(options.romBaudrate, 115200, 'no post-stub baud change');
+      this.terminal = options.terminal;
     }
     async main() {
+      this.terminal.writeLine('Connecting to ESP32-S3...');
+      this.terminal.writeLine('Stub running...');
       if (syncError) throw new Error('Serial data stream stopped: Possible serial noise or corruption.');
       return 'ESP32-S3';
     }
@@ -143,7 +148,8 @@ function fixture({ layout = partitions, ota = otadata, failBackup = false,
     showSaveFilePicker() {},
     confirm(message) { assert.match(message, /full flash backup/); return true; },
   };
-  const nav = { serial: { async requestPort() {
+  const nav = { clipboard: { async writeText(text) { calls.copiedLog = text; } },
+    serial: { async requestPort() {
     calls.ports++;
     return { kind: 'selected-board' };
   } } };
@@ -160,6 +166,8 @@ function fixture({ layout = partitions, ota = otadata, failBackup = false,
     backup: elements.get('custom-backup'),
     flash: elements.get('custom-flash'),
     status: elements.get('custom-status'),
+    log: elements.get('custom-log'),
+    copyLog: elements.get('custom-copy-log'),
   };
 }
 
@@ -202,6 +210,16 @@ assert.ok(sameBytes(happy.board.slice(0x9000, 0xe000), happy.originalNvs),
           'NVS is unaffected');
 assert.match(happy.status.textContent, /Success: app0 flashed and read-back verified/);
 assert.equal(happy.flash.disabled, true, 'no second flash without new session');
+assert.match(happy.log.textContent, /esptool: Stub running/);
+assert.match(happy.log.textContent, /Reading partition table at 0x8000/);
+assert.match(happy.log.textContent, /Backing up flash: 100.0%/);
+assert.match(happy.log.textContent, /Writing app0: 100.0%/);
+assert.match(happy.log.textContent, /Verifying app0: 100.0%/);
+assert.match(happy.log.textContent, /Success: app0 flashed/);
+await happy.copyLog.click();
+assert.match(happy.calls.copiedLog, /Success: app0 flashed/);
+assert.match(happy.log.textContent, /Log copied to clipboard/);
+assert.ok(happy.log.textContent.split('\n').length <= 300, 'logs remain bounded');
 
 const wrongLayout = fixture({ layout: badTable });
 await chooseAndInspect(wrongLayout);
@@ -224,6 +242,7 @@ const noisyUsb = fixture({ syncError: true });
 await noisyUsb.connect.click();
 assert.match(noisyUsb.status.textContent, /Failed while starting the ESP32-S3 bootloader/);
 assert.match(noisyUsb.status.textContent, /Hold BOOT, tap RESET/);
+assert.match(noisyUsb.log.textContent, /Possible serial noise or corruption/);
 assert.equal(noisyUsb.backup.disabled, true);
 assert.equal(noisyUsb.calls.writes.length, 0);
 
@@ -252,6 +271,8 @@ const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
 assert.match(html, /setupCustomUpdater\(\{ document, navigator, window \}\)/);
 assert.match(html, /id="custom-backup"/);
 assert.match(html, /id="custom-flash"/);
+assert.match(html, /id="custom-log-panel" open/);
+assert.match(html, /id="custom-copy-log"/);
 assert.doesNotMatch(html, /id="custom-confirm"/);
 assert.doesNotMatch(html, /id="custom-install"/);
 

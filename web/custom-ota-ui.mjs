@@ -17,12 +17,16 @@ async function readExactly(loader, offset, size, progress) {
   return data;
 }
 
-async function readSnapshot(loader) {
+async function readSnapshot(loader, onStage = () => {}) {
+  onStage('Reading partition table at 0x8000 (4 KiB)…');
   const partitions = await readExactly(loader, PARTITION_OFFSET, PARTITION_BYTES);
+  onStage('Reading OTA boot selection at 0xE000 (8 KiB)…');
   const otadata = await readExactly(loader, OTADATA_OFFSET, OTADATA_BYTES);
+  onStage('Reading app0 image header at 0x10000 (4 KiB)…');
   const appSector = await readExactly(loader, APP_OFFSET, 0x1000);
   const activeHeader = appSector.slice(0, 40);
   const selected = checkBoardSnapshot(partitions, otadata, activeHeader);
+  onStage('Partition table, OTA CRC and app0 image header validated.');
   return { partitions, otadata, activeHeader, selected };
 }
 
@@ -44,6 +48,8 @@ export function setupCustomUpdater({
   const flashButton = document.getElementById('custom-flash');
   const disconnectButton = document.getElementById('custom-disconnect');
   const status = document.getElementById('custom-status');
+  const logView = document.getElementById('custom-log');
+  const copyLogButton = document.getElementById('custom-copy-log');
 
   let selectedFile = null;
   let transport = null;
@@ -53,6 +59,18 @@ export function setupCustomUpdater({
   let busy = false;
   let finished = false;
   let flashAttempted = false;
+  const logLines = [];
+  const progressBuckets = new Map();
+
+  function appendLog(message) {
+    for (const line of String(message).split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      logLines.push(`[${new Date().toLocaleTimeString()}] ${line}`);
+    }
+    if (logLines.length > 300) logLines.splice(0, logLines.length - 300);
+    logView.textContent = logLines.join('\n');
+    logView.scrollTop = logView.scrollHeight;
+  }
 
   function updateButtons() {
     // Reading and backing up a board do not require a firmware image.
@@ -66,11 +84,36 @@ export function setupCustomUpdater({
     disconnectButton.disabled = busy || !loader;
   }
 
-  function report(message) { status.textContent = message; }
+  function report(message, logMessage = true) {
+    status.textContent = message;
+    if (logMessage) appendLog(message);
+  }
 
   function progressLabel(prefix, completed, total) {
-    report(`${prefix}: ${(100 * completed / total).toFixed(1)}% (${(completed / 1048576).toFixed(2)} / ${(total / 1048576).toFixed(2)} MiB)`);
+    const percent = Math.min(100, 100 * completed / total);
+    const message = `${prefix}: ${percent.toFixed(1)}% (${(completed / 1048576).toFixed(2)} / ${(total / 1048576).toFixed(2)} MiB)`;
+    report(message, false);
+    // On-screen progress can update for every packet. The log only records
+    // 5% milestones so a 16 MB backup remains readable and inexpensive.
+    const bucket = Math.floor(percent / 5);
+    if (bucket > (progressBuckets.get(prefix) ?? -1)) {
+      progressBuckets.set(prefix, bucket);
+      appendLog(message);
+    }
   }
+
+  copyLogButton.addEventListener('click', async () => {
+    if (!navigator.clipboard?.writeText) {
+      report('Copy log requires clipboard access in a secure browser.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(logView.textContent);
+      appendLog('Log copied to clipboard.');
+    } catch (error) {
+      report('Could not copy the log: ' + (error?.message || String(error)));
+    }
+  });
 
   async function withBusy(task) {
     if (busy) return;
@@ -103,6 +146,7 @@ export function setupCustomUpdater({
       throw new Error('This browser cannot save and verify a flash backup. Use desktop Chrome or Edge.');
 
     // Web Serial's port picker must run directly in this click handler.
+    report('Choose the USB serial port for the board.');
     const port = await navigator.serial.requestPort();
     let stage = 'starting the ESP32-S3 bootloader';
     try {
@@ -112,7 +156,13 @@ export function setupCustomUpdater({
         // Avoid changing Web Serial's baud rate after the stub starts. Some
         // USB serial drivers drop the SLIP stream on a port reopen.
         transport, baudrate: 115200, romBaudrate: 115200,
-        terminal: { clean() {}, write() {}, writeLine() {} },
+        terminal: {
+          // Espressif's connection/stub messages are useful when a board
+          // disconnects mid-sync. Keep them in the local log, not on a server.
+          clean() {},
+          write(data) { appendLog('esptool: ' + data); },
+          writeLine(data) { appendLog('esptool: ' + data); },
+        },
         debugLogging: false,
       });
       report('Connecting at 115200 baud (safe USB mode)…');
@@ -125,7 +175,7 @@ export function setupCustomUpdater({
       checkFlashSecurity(chipName, flashSize, security);
       stage = 'reading the partition table and OTA slot';
       report('Security settings accepted. Reading partitions and OTA selection…');
-      snapshot = await readSnapshot(loader);
+      snapshot = await readSnapshot(loader, report);
       report('Board accepted: ESP32-S3, 16 MB, exact TamaPoke partitions; OTA metadata selects app0 at 0x10000. Next save the complete 16 MB backup.');
     } catch (error) {
       snapshot = null;
@@ -146,6 +196,7 @@ export function setupCustomUpdater({
     // The browser requires the user to choose a local save path. Request the
     // picker immediately from this click, before the lengthy USB read begins.
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    report('Choose where to save the complete 16 MB flash backup.');
     const handle = await pickBackupFile({
       suggestedName: `tamapoke-full-flash-${stamp}.bin`,
       types: [{ description: 'Complete 16 MB ESP32 flash backup',
@@ -157,6 +208,8 @@ export function setupCustomUpdater({
     let writable;
     try {
       writable = await handle.createWritable();
+      report('Backup file opened. Reading all 16 MB from the connected board…');
+      progressBuckets.delete('Backing up flash');
       const original = new Uint8Array(FLASH_BYTES);
       for (let offset = 0; offset < FLASH_BYTES; offset += CHUNK_BYTES) {
         const length = Math.min(CHUNK_BYTES, FLASH_BYTES - offset);
@@ -197,7 +250,7 @@ export function setupCustomUpdater({
     if (!confirmFlash('Flash the selected app to app0 (0x10000) on this checked board? Your full flash backup has been saved. NVS and FFAT will not be intentionally written.'))
       return;
     report('Rechecking OTA selection and partition layout before writing…');
-    const current = await readSnapshot(loader);
+    const current = await readSnapshot(loader, report);
     if (!matchesSnapshot(snapshot, current))
       throw new Error('Board metadata changed since the backup. No flash permitted.');
     const image = new Uint8Array(await selectedFile.arrayBuffer());
@@ -206,6 +259,8 @@ export function setupCustomUpdater({
     // A failed or interrupted write must not silently offer a retry. The user
     // should recover/inspect again instead of programming an uncertain state.
     flashAttempted = true;
+    report('Writing app-only firmware to 0x10000. NVS and FFAT are not targeted.');
+    progressBuckets.delete('Writing app0');
     await loader.writeFlash({
       fileArray: [{ data: image, address: APP_OFFSET }],
       flashMode: 'keep', flashFreq: 'keep', flashSize: '16MB',
@@ -213,6 +268,7 @@ export function setupCustomUpdater({
       reportProgress: (_index, written, total) => progressLabel('Writing app0', written, total),
     });
     report('App written. Reading it back to verify every firmware byte…');
+    progressBuckets.delete('Verifying app0');
     for (let offset = 0; offset < image.length; offset += CHUNK_BYTES) {
       const remaining = Math.min(CHUNK_BYTES, image.length - offset);
       // Read full flash sectors, while only comparing the selected file bytes.
