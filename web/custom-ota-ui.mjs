@@ -104,19 +104,27 @@ export function setupCustomUpdater({
 
     // Web Serial's port picker must run directly in this click handler.
     const port = await navigator.serial.requestPort();
+    let stage = 'starting the ESP32-S3 bootloader';
     try {
       const { ESPLoader, Transport } = await loadFlasher();
       transport = new Transport(port, true);
       loader = new ESPLoader({
-        transport, baudrate: 460800,
+        // Avoid changing Web Serial's baud rate after the stub starts. Some
+        // USB serial drivers drop the SLIP stream on a port reopen.
+        transport, baudrate: 115200, romBaudrate: 115200,
         terminal: { clean() {}, write() {}, writeLine() {} },
         debugLogging: false,
       });
-      report('Connecting to the selected board and reading its boot metadata…');
+      report('Connecting at 115200 baud (safe USB mode)…');
       const chipName = await loader.main();
+      stage = 'detecting the flash size';
+      report('ESP connected. Checking its flash size…');
       const flashSize = await loader.detectFlashSize();
+      stage = 'reading the security settings';
       const security = await loader.getSecurityInfo();
       checkFlashSecurity(chipName, flashSize, security);
+      stage = 'reading the partition table and OTA slot';
+      report('Security settings accepted. Reading partitions and OTA selection…');
       snapshot = await readSnapshot(loader);
       report('Board accepted: ESP32-S3, 16 MB, exact TamaPoke partitions; OTA metadata selects app0 at 0x10000. Next save the complete 16 MB backup.');
     } catch (error) {
@@ -124,7 +132,12 @@ export function setupCustomUpdater({
       const currentTransport = transport;
       loader = transport = null;
       if (currentTransport) await currentTransport.disconnect().catch(() => {});
-      throw error;
+      const serialFailure = /serial data stream stopped|serial noise|corruption|invalid head|timed? out/i
+        .test(error?.message || '');
+      const hint = serialFailure
+        ? ' Close other serial apps and installer tabs. Hold BOOT, tap RESET, release BOOT, then reconnect using a data-capable USB cable.'
+        : '';
+      throw new Error(`Failed while ${stage}: ${error?.message || String(error)}.${hint}`);
     }
   }));
 

@@ -65,7 +65,7 @@ assert.throws(() => checkFlashSecurity('ESP32-S3', '16MB',
 // this simulated 16 MB flash array are used.
 function fixture({ layout = partitions, ota = otadata, failBackup = false,
                    failVerification = false, badSecurity = false,
-                   corruptWrite = false } = {}) {
+                   corruptWrite = false, syncError = false } = {}) {
   const board = new Uint8Array(FLASH_BYTES).fill(0xff);
   board.set(layout, PARTITION_OFFSET);
   board.set(ota, OTADATA_OFFSET);
@@ -110,7 +110,14 @@ function fixture({ layout = partitions, ota = otadata, failBackup = false,
     async disconnect() { calls.disconnects++; }
   }
   class FakeLoader {
-    async main() { return 'ESP32-S3'; }
+    constructor(options) {
+      assert.equal(options.baudrate, 115200, 'safe USB connection speed');
+      assert.equal(options.romBaudrate, 115200, 'no post-stub baud change');
+    }
+    async main() {
+      if (syncError) throw new Error('Serial data stream stopped: Possible serial noise or corruption.');
+      return 'ESP32-S3';
+    }
     async detectFlashSize() { return '16MB'; }
     async getSecurityInfo() {
       return badSecurity ? { ...security, flashCryptCnt: 1 } : security;
@@ -212,6 +219,13 @@ const secureBoard = fixture({ badSecurity: true });
 await chooseAndInspect(secureBoard);
 assert.match(secureBoard.status.textContent, /security state/);
 assert.equal(secureBoard.flash.disabled, true);
+
+const noisyUsb = fixture({ syncError: true });
+await noisyUsb.connect.click();
+assert.match(noisyUsb.status.textContent, /Failed while starting the ESP32-S3 bootloader/);
+assert.match(noisyUsb.status.textContent, /Hold BOOT, tap RESET/);
+assert.equal(noisyUsb.backup.disabled, true);
+assert.equal(noisyUsb.calls.writes.length, 0);
 
 const canceled = fixture({ failBackup: true });
 await chooseAndInspect(canceled);

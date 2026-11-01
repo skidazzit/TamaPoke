@@ -98,6 +98,9 @@
        <code>app0</code> at <code>0x10000</code>. All other layouts, security
        configurations and OTA states are refused. A selected OTA slot does not
        conclusively prove which app is running if the bootloader fell back.</p>
+    <p class="note">Connection trouble? Disconnect other serial apps or
+       installer tabs, then <b>hold BOOT → tap RESET → release BOOT</b> and
+       try again. This beta updater connects at a conservative 115200 baud.</p>
     <div class="row">
       <label for="custom-file"><b>Select app-only .bin:</b></label>
       <input id="custom-file" type="file" accept=".bin,application/octet-stream">
@@ -337,7 +340,7 @@ document.getElementById('files').onchange = async (ev) => {
 };
 </script>
 <script type="module">
-import { setupCustomUpdater } from './custom-ota-ui.mjs?v=backup-preflight-2';
+import { setupCustomUpdater } from './custom-ota-ui.mjs?v=usb-115200-1';
 setupCustomUpdater({ document, navigator, window });
 </script>
 </body>

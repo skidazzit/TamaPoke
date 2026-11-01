@@ -10,6 +10,8 @@ before it offers a flash button.
 1. Use **desktop Chrome or Edge over HTTPS** with a data-capable USB cable.
    You may choose your ESP32-S3 **app-only** image at any point before
    flashing (not merged firmware, bootloader, partition table, or sprites).
+   The updater connects at **115200 baud** without switching the port's
+   speed, to avoid Web Serial USB communication errors.
 2. Click **1. Connect & inspect board**. Select the correct USB port. The page
    uses Espressif's `esptool-js` and reads the board's flash metadata. It
    refuses any device that does not report:
@@ -56,3 +58,8 @@ when preserving your pet and settings.
 We have automated tests for the checks and workflow. The USB read/write
 sequence still needs testing with a physical Waveshare
 ESP32-S3-Touch-AMOLED-1.75 board; treat this feature as **beta** until then.
+
+If connection stops with a serial noise/corruption error, close every other
+tab or application using the serial port, hold **BOOT**, tap **RESET**, release
+**BOOT**, then connect again. Try a direct USB port and a data-capable cable.
+No flash is written during the connection inspection.
