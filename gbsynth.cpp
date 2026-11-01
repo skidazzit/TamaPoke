@@ -63,10 +63,10 @@ bool GbSynth::busy() const {
 
 void GbSynth::render(int16_t *out, size_t n, uint8_t master) {
   if (master > 10) master = 10;
-  // Headroom for three voices at once: each can reach 15, and the sum is
-  // divided so a full chord cannot clip. 1500 per unit of master keeps a single
-  // voice comfortably audible without the mix distorting.
-  const int32_t scale = (int32_t)master * 150;
+  // A quadratic volume curve gives the low steps fine control: level 1 is
+  // 1% of full-scale amplitude, while level 10 retains the old maximum.
+  // Keep headroom for three voices so chords do not clip.
+  const int32_t scale = (int32_t)master * master * 15;
   for (size_t i = 0; i < n; i++) {
     int32_t mix = 0;
     for (int c = 0; c < GB_VOICES; c++) {
