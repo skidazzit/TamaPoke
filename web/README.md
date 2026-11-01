@@ -52,6 +52,37 @@ cd web && python3 -m http.server 8000
 3. Restart (PWR button) → choose your starter and play.
 
 A hidden "pick them manually" option lets advanced users send their own `.bin`.
+That picker is for **sprite files**, not firmware.
+
+## Install a custom OTA/app image through USB
+
+The optional **Custom OTA/app update** section accepts a local `ota.bin` or
+`app.bin` built for the ESP32-S3. It uses ESP Web Tools with a temporary manifest
+containing exactly one part: the uploaded file at `0x10000`. The browser reads
+the file directly; it is not sent to GitHub or another web service.
+
+The page checks the ESP32 image header, ESP32-S3 chip ID, standard app
+description, and the 3 MB app-slot size limit. This rejects a full merged
+firmware file, bootloader, and most wrong-board images. It cannot prove that
+an otherwise valid app was built for TamaPoke or its partition layout.
+
+**Back up the whole board first.** Only use this on a 16 MB TamaPoke board
+with the same partition table and the **active** app slot at `0x10000`.
+If an OTA update has selected `app1` at `0x310000`, writing `app0` will not
+change the running app. Do not guess the active slot. This method does not
+touch NVS or FFAT, but a mismatched app may still fail to boot or read the
+saved data. For LAN beta tests, both boards must run the same protocol version.
+
+**Leave "Erase device" unchecked** in ESP Web Tools. Its no-Improv path
+silently erases flash when `new_install_prompt_erase` is false; the dynamic
+manifest sets it to true, so the user must choose. See
+[`../tools/check_installer.py`](../tools/check_installer.py) for why.
+
+Check the header and the one-part manifest with:
+
+```bash
+node web/custom-ota.test.mjs
+```
 
 ## Hosting the sprites
 
