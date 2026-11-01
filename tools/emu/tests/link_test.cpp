@@ -72,6 +72,16 @@ int main(){
      "move slot 0 survives -- it is not confused with silence");
   ck(B.state==LINK_WAITING, "and the guest waits rather than resolving");
 
+  // Pairing resends can arrive after a player has already chosen a move.
+  // They must not reset WAITING or erase the queued action from the radio.
+  uint8_t lateSquad[2+1+sizeof(LinkMon)] = {};
+  lateSquad[0]=LM_SQUAD; lateSquad[1]=1+sizeof(LinkMon);
+  lateSquad[2]=0;
+  memcpy(lateSquad+3, &A.mine[0], sizeof(LinkMon));
+  B.onPacket(lateSquad, sizeof(lateSquad));
+  ck(B.state==LINK_WAITING && B.txLive,
+     "a late squad does not cancel a pending action");
+
   A.pendingAct = 0;
   B.state = LINK_READY;
   B.sendAct(LINK_ACT_SWITCH_TO(3));
@@ -117,6 +127,8 @@ int main(){
   A.sendEnd(true);
   ck(A.state==LINK_DONE && B.state==LINK_DONE, "both see the end");
   ck(A.youWon && !B.youWon, "and agree on who won");
+  B.onPacket(lateSquad, sizeof(lateSquad));
+  ck(B.state==LINK_DONE, "a late squad cannot reopen a finished battle");
 
   // --- roles: two hosts, or two guests, must resolve to exactly one host
   {
@@ -166,6 +178,19 @@ int main(){
     ck(C.state==LINK_REFUSED, "a different build's tables are refused");
   }
   ck(linkBuildTag()==linkBuildTag(), "the build tag is stable within a build");
+
+  // A packet must not lock the radio to a sender until it is a whole HELLO.
+  // Locking to a squad fragment or foreign traffic blocks the real rival.
+  {
+    uint8_t p[2+7+LINK_NAME_LEN] = {};
+    p[0]=LM_HELLO; p[1]=7+LINK_NAME_LEN; p[2]=LINK_PROTO;
+    ck(linkIsPairHello(p, sizeof(p)), "a complete HELLO can choose a radio peer");
+    ck(!linkIsPairHello(p, sizeof(p)-1), "a short HELLO cannot lock the radio");
+    p[0]=LM_SQUAD;
+    ck(!linkIsPairHello(p, sizeof(p)), "a stray squad cannot lock the radio");
+    p[0]=LM_HELLO; p[1]=3;
+    ck(!linkIsPairHello(p, sizeof(p)), "a false length cannot lock the radio");
+  }
 
   // --- malformed frames must be dropped, not half-parsed
   {

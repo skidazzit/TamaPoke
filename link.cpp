@@ -18,6 +18,11 @@
 #define HB_NAME 7         // LINK_NAME_LEN bytes
 #define HB_LEN (HB_NAME + LINK_NAME_LEN)
 
+bool linkIsPairHello(const uint8_t *data, uint8_t len) {
+  return data && len == HDR + HB_LEN && data[0] == LM_HELLO &&
+         data[1] == HB_LEN;
+}
+
 uint16_t linkBuildTag() {
   // Deliberately made of sizes and counts, not a version string: these are
   // exactly the things that change how a packet is READ. Two builds agreeing on
@@ -138,6 +143,7 @@ void Link::begin(bool host, const char *myName) {
   txN = 0;
   txLive = false;
   txAt = 0;
+  keepaliveAt = 0;
   resendSeq = 0;
   lastRx = 0;
   sawRx = false;
@@ -208,6 +214,9 @@ void Link::rearm() {
   resultNew = false;
   youWon = false;
   txLive = false;
+  // A rematch may be requested minutes after LINK_DONE stopped tick(). Reset
+  // the silence deadline on the next tick, or it dies instantly on re-entry.
+  sawRx = true;
   state = LINK_READY;
 }
 
@@ -215,7 +224,7 @@ void Link::rearm() {
 // once a frame; `now` is passed in so a test can drive time directly.
 void Link::tick(uint32_t now) {
   if (!live() || state == LINK_DONE) return;
-  if (!armed) { armed = true; lastRx = now; txAt = now; }
+  if (!armed) { armed = true; lastRx = now; txAt = now; keepaliveAt = now; }
   if (sawRx) { sawRx = false; lastRx = now; }
 
   uint32_t limit = (state == LINK_READY || state == LINK_WAITING)
@@ -227,6 +236,16 @@ void Link::tick(uint32_t now) {
     state = LINK_LOST;
     txLive = false;
     return;
+  }
+
+  // READY and WAITING can be quiet for as long as the players need. Without
+  // a heartbeat both sides time out after 12 s even when they are in range.
+  // Do not keep this packet in tx: the pending action/result still needs its
+  // own resend cycle until the other side handles it.
+  if ((state == LINK_READY || state == LINK_WAITING) &&
+      now - keepaliveAt >= LINK_KEEPALIVE_MS) {
+    keepaliveAt = now;
+    put(*this, LM_KEEPALIVE, nullptr, 0);
   }
 
   // Derived from our id, so the two sides never settle into the same rhythm as
@@ -251,8 +270,6 @@ void Link::onPacket(const uint8_t *buf, uint8_t len) {
   if (n > LINK_MAX_PAYLOAD || (uint16_t)HDR + n > len) return;   // truncated
   const uint8_t *body = buf + HDR;
   if (state == LINK_REFUSED) return;   // an incompatible peer stays refused
-  sawRx = true;    // proof of life. onPacket has no clock, so tick() stamps it
-
   switch (type) {
     case LM_HELLO: {
       if (n < HB_LEN) return;
@@ -264,6 +281,7 @@ void Link::onPacket(const uint8_t *buf, uint8_t len) {
       // Same proto, different tables: the move index in a result would name a
       // different move on each screen. Also refused.
       if (buildTheirs != linkBuildTag()) { state = LINK_REFUSED; return; }
+      sawRx = true;
       peerId = (uint16_t)body[HB_ID] | ((uint16_t)body[HB_ID + 1] << 8);
       bool theyHost = (body[HB_FLAGS] & 1) != 0;
       theirsExpected = body[HB_COUNT] > TRAINER_TEAM_MAX ? TRAINER_TEAM_MAX
@@ -296,9 +314,14 @@ void Link::onPacket(const uint8_t *buf, uint8_t len) {
       return;
     }
     case LM_SQUAD: {
+      // Late pairing retries are common on a lossy radio. After READY they
+      // must not put a waiting guest back in READY, drop its queued move, or
+      // reopen a finished fight. Only collect squads during the handshake.
+      if (state != LINK_SQUADS && state != LINK_HANDSHAKE) return;
       if (n < 1 + sizeof(LinkMon)) return;
       uint8_t idx = body[0];
       if (idx >= TRAINER_TEAM_MAX) return;
+      if (protoTheirs == LINK_PROTO) sawRx = true;
       memcpy(&theirs[idx], body + 1, sizeof(LinkMon));
       theirsGot |= (uint16_t)1 << idx;
       if (idx + 1 > theirsN) theirsN = idx + 1;
@@ -321,6 +344,7 @@ void Link::onPacket(const uint8_t *buf, uint8_t len) {
       // desync it -- every repeat would spend another turn.
       if (body[0] != turn) return;
       if (!body[1]) return;            // 0 is not an action, it means silence
+      sawRx = true;
       pendingAct = body[1];
       return;
     case LM_RESULT: {
@@ -330,6 +354,7 @@ void Link::onPacket(const uint8_t *buf, uint8_t len) {
       // we simply missed one, and skip its narration. An earlier one is a
       // duplicate and is dropped.
       if ((uint8_t)(t - turn) > 128) return;
+      sawRx = true;
       resultN = (uint8_t)(n - 1);
       if (resultN) memcpy(result, body + 1, resultN);
       resultNew = true;
@@ -340,17 +365,23 @@ void Link::onPacket(const uint8_t *buf, uint8_t len) {
     }
     case LM_END:
       if (n < 1) return;
+      sawRx = true;
       youWon = isHost ? (body[0] != 0) : (body[0] == 0);
       txLive = false;
       state = LINK_DONE;
       return;
     case LM_BYE:
+      if (n != 0) return;
       txLive = false;
       state = LINK_LOST;
       return;
     case LM_REMATCH:
-      if (!theirsN || !mineN) return;
+      if (n != 0 || !theirsN || !mineN) return;
       rearm();
+      return;
+    case LM_KEEPALIVE:
+      if (n == 0 && (state == LINK_READY || state == LINK_WAITING))
+        sawRx = true;
       return;
     default:
       return;                          // unknown type: ignore, do not desync

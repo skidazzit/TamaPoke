@@ -32,7 +32,7 @@
 // whole handshake without a radio, and a deliberately lossy transport exercises
 // all of the above. Only the radio itself is unverifiable here.
 
-#define LINK_PROTO 2        // bump on ANY wire change; a mismatch is refused
+#define LINK_PROTO 3        // bump on ANY wire change; a mismatch is refused
 #define LINK_MAX_PAYLOAD 200
 #define LINK_NAME_LEN 12
 
@@ -43,8 +43,9 @@
 // The lossy test reproduces exactly that: with one frame in three dropped and a
 // fixed interval, one squad packet was destroyed on all ten attempts.
 #define LINK_JITTER_MS 200
+#define LINK_KEEPALIVE_MS 2000        // paired but idle is not a lost connection
 #define LINK_PAIR_TIMEOUT_MS 20000    // waiting for a peer that may not exist
-#define LINK_BATTLE_TIMEOUT_MS 12000  // mid-fight, where one is known to be there
+#define LINK_BATTLE_TIMEOUT_MS 12000  // no valid peer traffic, including pings
 
 // An action is a move slot, or a switch with the high bit set. One message
 // rather than two, so turn matching and resend have a single path -- which is
@@ -80,6 +81,7 @@ enum LinkMsg : uint8_t {
   LM_END,
   LM_BYE,        // leaving on purpose, so the peer need not wait for a timeout
   LM_REMATCH,    // go again with the same squads
+  LM_KEEPALIVE,  // paired users can spend more than 12 s choosing an action
 };
 
 // A creature on the wire. Deliberately not `Combatant` itself: that carries
@@ -140,6 +142,7 @@ struct Link {
   uint8_t txN = 0;
   bool txLive = false;
   uint32_t txAt = 0;
+  uint32_t keepaliveAt = 0;
   uint32_t lastRx = 0;
   uint8_t resendSeq = 0;       // varies the resend interval, see LINK_JITTER_MS
   bool sawRx = false;          // onPacket has no clock; tick() stamps it
@@ -176,6 +179,8 @@ struct Link {
 // compatible and refusing it would be noise. These are the things that would
 // actually make one device read a packet differently from the other.
 uint16_t linkBuildTag();
+// Only a complete HELLO may select the first radio peer during pairing.
+bool linkIsPairHello(const uint8_t *data, uint8_t len);
 
 // Builds the wire form of a combatant, so both ends agree on what a creature is.
 // linkMonTo VALIDATES: everything it produces is safe to index a table with,
