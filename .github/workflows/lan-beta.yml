@@ -1,0 +1,61 @@
+name: TamaPoke LAN beta firmware
+
+on:
+  push:
+    branches:
+      - fix/lan-idle-keepalive
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  beta-firmware:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+        with:
+          version: "1.5.1"
+
+      - name: Install ESP32 core and libraries
+        run: |
+          arduino-cli config add board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.12
+          arduino-cli lib install "GFX Library for Arduino" "SensorLib" "XPowersLib"
+
+      - name: Run LAN protocol tests
+        run: |
+          CORE="gbsynth.cpp pet.cpp i18n.cpp party.cpp battle.cpp link.cpp save.cpp"
+          g++ -std=c++17 -O1 -w -Itools/emu -I. -o /tmp/tamapoke-link-test tools/emu/tests/link_test.cpp $CORE
+          g++ -std=c++17 -O1 -w -Itools/emu -I. -o /tmp/tamapoke-lossy-test tools/emu/tests/lossy_test.cpp $CORE
+          (cd /tmp && ./tamapoke-link-test)
+          (cd /tmp && ./tamapoke-lossy-test)
+
+      - name: Build ESP32-S3 firmware
+        run: |
+          FQBN="esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB"
+          arduino-cli compile --fqbn "$FQBN" --export-binaries .
+
+      - name: Pack USB beta parts without changing saved games
+        run: |
+          mkdir -p beta-out
+          B="build/esp32.esp32.esp32s3"
+          cp "$B/TamaPoke.ino.bin" beta-out/app.bin
+          cp "$B/TamaPoke.ino.bootloader.bin" beta-out/bootloader.bin
+          cp "$B/TamaPoke.ino.partitions.bin" beta-out/partitions.bin
+          cp "$B/boot_app0.bin" beta-out/boot_app0.bin
+          cp docs/lan-beta-test.md beta-out/README.md
+          (cd beta-out && sha256sum *.bin > SHA256SUMS.txt)
+
+      - name: Upload beta firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: TamaPoke-LAN-beta-ESP32S3
+          path: beta-out/
+          if-no-files-found: error
+          retention-days: 30
