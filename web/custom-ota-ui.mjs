@@ -4,7 +4,7 @@ import {
   FLASH_BYTES, PARTITION_OFFSET, PARTITION_BYTES, OTADATA_OFFSET, OTADATA_BYTES,
   APP_OFFSET, checkCustomAppImage, checkFlashSecurity, checkBoardSnapshot,
   sameBytes,
-} from './custom-ota.mjs';
+} from './custom-ota.mjs?v=backup-preflight-1';
 
 const CHUNK_BYTES = 0x40000;
 
