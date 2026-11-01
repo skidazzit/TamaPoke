@@ -167,6 +167,19 @@ int main(){
   }
   ck(linkBuildTag()==linkBuildTag(), "the build tag is stable within a build");
 
+  // A packet must not lock the radio to a sender until it is a whole HELLO.
+  // Locking to a squad fragment or foreign traffic blocks the real rival.
+  {
+    uint8_t p[2+7+LINK_NAME_LEN] = {};
+    p[0]=LM_HELLO; p[1]=7+LINK_NAME_LEN; p[2]=LINK_PROTO;
+    ck(linkIsPairHello(p, sizeof(p)), "a complete HELLO can choose a radio peer");
+    ck(!linkIsPairHello(p, sizeof(p)-1), "a short HELLO cannot lock the radio");
+    p[0]=LM_SQUAD;
+    ck(!linkIsPairHello(p, sizeof(p)), "a stray squad cannot lock the radio");
+    p[0]=LM_HELLO; p[1]=3;
+    ck(!linkIsPairHello(p, sizeof(p)), "a false length cannot lock the radio");
+  }
+
   // --- malformed frames must be dropped, not half-parsed
   {
     Link E; E.send=nullptr; E.begin(true,"E");

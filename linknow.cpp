@@ -49,6 +49,11 @@ static void onSent(const wifi_tx_info_t *info, esp_now_send_status_t st) {
 
 static void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
   if (!gUp || len <= 0 || (size_t)len > RING_SLOT_BYTES) return;
+  // The first radio frame must be a complete HELLO, not a stray squad packet
+  // from another pair. The pure filter is exercised by link_test.
+  if (!gLocked && (!info || !info->src_addr ||
+                   !linkIsPairHello(data, (uint8_t)len)))
+    return;
   // Once we have a peer, everyone else is somebody else's game.
   if (gLocked && info && info->src_addr && !sameMac(info->src_addr, gPeer)) {
     gStats.foreign++;
@@ -106,11 +111,21 @@ bool linkNowBegin(Link *l) {
   gPeerAdded = false;
   gHead = gTail = 0;
   gStats = LinkNowStats();
-  WiFi.mode(WIFI_STA);
+  if (!WiFi.mode(WIFI_STA)) {
+    Serial.println("ESP-NOW: WiFi STA no inicio");
+    gLink = nullptr;
+    return false;
+  }
   WiFi.disconnect();
   // A fixed channel, or two devices on different channels never hear each other
   // and it looks like a dead link rather than a mismatch.
-  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+  esp_err_t channelResult = esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+  if (channelResult != ESP_OK) {
+    Serial.printf("ESP-NOW: canal 1 fallo (%d)\n", (int)channelResult);
+    WiFi.mode(WIFI_OFF);
+    gLink = nullptr;
+    return false;
+  }
   if (esp_now_init() != ESP_OK) {
     Serial.println("ESP-NOW init fallo");
     WiFi.mode(WIFI_OFF);

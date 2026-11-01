@@ -138,6 +138,37 @@ int main(){
   ck(A.turn == (uint8_t)(t0+1), "the host advances exactly one turn");
   ck(B.turn == A.turn, "and so does the guest, despite the duplicates");
 
+  // --- a paired radio must survive people taking time to choose -----------
+  // There is no traffic between turns in the original protocol. Both boards
+  // therefore declared the link dead after 12 seconds of ordinary thinking.
+  {
+    seen=dropped=0; dropEvery=0; dupEvery=0; deaf=false;
+    pair(true,false);
+    run(3000);
+    ck(A.ready() && B.ready(), "paired for an idle test");
+    run(LINK_BATTLE_TIMEOUT_MS * 3, 250);
+    ck(A.ready() && B.ready(), "both stay paired while players choose a team");
+
+    B.sendAct(LINK_ACT_MOVE(0));
+    run(LINK_BATTLE_TIMEOUT_MS * 2, 250);
+    ck(A.hasPeerAct() && B.state==LINK_WAITING,
+       "the guest stays connected while the host thinks");
+    LinkResult idleResult{};
+    idleResult.hostHp=75; idleResult.guestHp=80;
+    A.sendResult((const uint8_t*)&idleResult,sizeof(idleResult));
+    run(2500);
+    ck(A.ready() && B.ready() && B.resultNew,
+       "the turn resumes after a long pause");
+
+    // After a battle, the rematch button may be pressed much later. Its
+    // timeout must start from the rematch, not the last turn of the old fight.
+    A.sendEnd(true);
+    run(LINK_BATTLE_TIMEOUT_MS * 2, 250);
+    A.sendRematch();
+    run(2500);
+    ck(A.ready() && B.ready(), "a late rematch stays connected");
+  }
+
   // --- a missed result is recovered from the next one ----------------------
   // LinkResult is absolute, not a delta, so a lost turn costs its narration
   // and nothing else.
