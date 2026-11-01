@@ -57,32 +57,40 @@ That picker is for **sprite files**, not firmware.
 ## Install a custom OTA/app image through USB
 
 The optional **Custom OTA/app update** section accepts a local `ota.bin` or
-`app.bin` built for the ESP32-S3. It uses ESP Web Tools with a temporary manifest
-containing exactly one part: the uploaded file at `0x10000`. The browser reads
-the file directly; it is not sent to GitHub or another web service.
+`app.bin` built for the ESP32-S3. It uses Espressif's `esptool-js` over Web
+Serial, keeping the same connection open for checks, full backup and flashing.
+The browser reads the file directly; it is not sent to GitHub or another web
+service.
 
 The page checks the ESP32 image header, ESP32-S3 chip ID, standard app
 description, and the 3 MB app-slot size limit. This rejects a full merged
 firmware file, bootloader, and most wrong-board images. It cannot prove that
 an otherwise valid app was built for TamaPoke or its partition layout.
 
-**Back up the whole board first.** Only use this on a 16 MB TamaPoke board
-with the same partition table and the **active** app slot at `0x10000`.
-If an OTA update has selected `app1` at `0x310000`, writing `app0` will not
-change the running app. Do not guess the active slot. This method does not
-touch NVS or FFAT, but a mismatched app may still fail to boot or read the
-saved data. For LAN beta tests, both boards must run the same protocol version.
+**Automatic safety gate:** click **Connect & inspect board**. The page refuses
+unexpected flash size, security configuration, partition layout and ambiguous
+OTA metadata, or if the bootloader's selected slot is `app1`. Next, click
+**Save & verify full backup** to read all 16 MB, save it locally via the browser
+file picker, and reopen it to verify every byte. Only then does the
+**Flash verified app** button enable. Before writing `app0` at `0x10000`, the
+page checks the boot metadata again. It reads the new app back afterward.
+An interrupted backup or failed check can never unlock flashing.
 
-**Leave "Erase device" unchecked** in ESP Web Tools. Its no-Improv path
-silently erases flash when `new_install_prompt_erase` is false; the dynamic
-manifest sets it to true, so the user must choose. See
-[`../tools/check_installer.py`](../tools/check_installer.py) for why.
+The custom updater sets `eraseAll: false` and writes only the app0 image,
+never NVS, FFAT or the partition table. A mismatched app may still fail to
+boot or read saved data. A selected OTA slot cannot completely prove the
+*running* slot if boot fallback occurred. For LAN beta tests, both boards
+must run the same protocol version. Leave **Erase device** unchecked in the
+separate, original ESP Web Tools installer above; see
+[`../tools/check_installer.py`](../tools/check_installer.py).
 
-Check the header and the one-part manifest with:
+Check the header, boot metadata parser and mocked safety workflow with:
 
 ```bash
 node web/custom-ota.test.mjs
 ```
+
+See [`CUSTOM-USB.md`](CUSTOM-USB.md) for the full procedure and limits.
 
 ## Hosting the sprites
 

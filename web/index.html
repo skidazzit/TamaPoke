@@ -22,7 +22,6 @@
   button:disabled { opacity:.5; cursor:default; }
   esp-web-install-button { display:inline-block; }
   esp-web-install-button[install-unsupported] { display:none; }
-  #custom-install[hidden] { display:none; }
   .unsupported { display:none; color:var(--bad); font-weight:500; }
   .row { display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; }
   #log { font-family: ui-monospace, monospace; font-size:.85rem; background:#1b1b25; color:#d8dcf0;
@@ -88,32 +87,35 @@
   <h2>Optional: Custom OTA/app update (beta)</h2>
   <div class="step" style="border-left:4px solid #4f93c4">
     <p>Already running TamaPoke? Choose a local ESP32-S3 <code>ota.bin</code> or
-       <code>app.bin</code> to update the app over <b>USB</b>. This does not send
-       firmware over Wi-Fi.</p>
-    <p class="note">For the existing 16 MB TamaPoke partition layout only.
-       The file must be an app-only OTA image, <b>not</b> merged firmware,
-       a bootloader, a partition file, or a sprite file. The update writes
-       just the 3 MB app slot starting at <code>0x10000</code>; it does not
-       write NVS or FFAT. An app in the other OTA slot will not be updated.</p>
+       <code>app.bin</code> to update the app over <b>USB</b>. Before any write,
+       the updater checks the actual board's flash size, security settings,
+       TamaPoke partition table and OTA-selected app slot. It then reads the
+       <b>whole 16 MB flash</b>, saves a local backup and verifies that saved
+       file byte-for-byte.</p>
+    <p class="note">This works only with the exact 16 MB TamaPoke layout and an
+       unencrypted ESP32-S3 whose OTA metadata unambiguously selects
+       <code>app0</code> at <code>0x10000</code>. All other layouts, security
+       configurations and OTA states are refused. A selected OTA slot does not
+       conclusively prove which app is running if the bootloader fell back.</p>
     <div class="row">
       <label for="custom-file"><b>Select app-only .bin:</b></label>
       <input id="custom-file" type="file" accept=".bin,application/octet-stream">
     </div>
     <p id="custom-status" class="note" role="status" aria-live="polite">No file selected.</p>
-    <label style="display:block;margin:.75rem 0">
-      <input id="custom-confirm" type="checkbox" disabled>
-      I backed up this board and checked its TamaPoke partition layout
-      and active app slot.
-    </label>
-    <esp-web-install-button id="custom-install" manifest="manifest.json" hidden>
-      <button slot="activate">⚡ Install selected app .bin</button>
-      <span slot="unsupported">Browser not supported (use Chrome/Edge).</span>
-      <span slot="not-allowed">Needs HTTPS.</span>
-    </esp-web-install-button>
+    <div class="row">
+      <button id="custom-connect" disabled>1. 🔌 Connect &amp; inspect board</button>
+      <button id="custom-backup" disabled>2. 💾 Save &amp; verify full backup</button>
+      <button id="custom-flash" disabled>3. ⚡ Flash verified app</button>
+      <button id="custom-disconnect" disabled>Disconnect</button>
+    </div>
     <p class="note" style="border-left:4px solid #e8503a;padding-left:10px">
-       <b>Never tick "Erase device" in the flash window.</b> It deletes your
-       pet and settings. Back up each board first, even with an app-only file.
-       See <a href="https://github.com/skidazzit/TamaPoke/blob/main/web/CUSTOM-USB.md"
+       <b>Keep the USB cable connected through all three steps.</b> The 16 MB
+       backup can take several minutes. Your browser will ask where to save it;
+       it stays on your computer. The custom updater never offers an
+       <b>Erase device</b> option and only writes app0, not NVS or FFAT.
+       The normal installer above is separate and can still erase saves if
+       you tick its Erase device box. See
+       <a href="https://github.com/skidazzit/TamaPoke/blob/main/web/CUSTOM-USB.md"
        target="_blank" rel="noopener noreferrer">the USB update safety guide</a>.
     </p>
   </div>
@@ -140,7 +142,7 @@
       <button id="autoa" data-region="alola" disabled>⬇️ Alola (~24 MB)</button>
     </div>
     <p class="note">Have your own <code>.bin</code> files? <label style="cursor:pointer;text-decoration:underline">pick them manually<input id="files" type="file" accept=".bin" multiple disabled hidden></label></p>
-    <p class="note">🎨 Want to make your own sprites? See <a href="https://github.com/skidazzit/TamaPoke#generate-and-load-the-sprites-yourself" target="_blank">how to generate &amp; load them</a> in the repo.</p>
+    <p class="note">🎨 Want to make your own sprites? See <a href="https://github.com/DylanPDao/TamaPoke#generate-and-load-the-sprites-yourself" target="_blank">how to generate &amp; load them</a> in the repo.</p>
     <div class="bar" id="bar"><div></div></div>
     <pre id="log"></pre>
   </div>
@@ -150,7 +152,7 @@
      all. Tap the creature to pet it; swipe to open the Pokédex (sideways), the
      stat card (up) or set the clock (down); the physical PWR button turns the
      screen off (short press) or everything off (long press).
-     More in the <a href="https://github.com/skidazzit/TamaPoke" target="_blank">repository</a>.</p>
+     More in the <a href="https://github.com/DylanPDao/TamaPoke" target="_blank">repository</a>.</p>
   <p class="note">TamaPoke was created by <b>Quique Tortosa</b> —
      <a href="https://github.com/socquique/TamaPoke" target="_blank">socquique/TamaPoke</a>.
      This is a fork that builds on his work.</p>
@@ -334,57 +336,8 @@ document.getElementById('files').onchange = async (ev) => {
 };
 </script>
 <script type="module">
-import { checkCustomAppImage, makeCustomAppManifest } from './custom-ota.mjs';
-
-const customFile = document.getElementById('custom-file');
-const customConfirm = document.getElementById('custom-confirm');
-const customInstall = document.getElementById('custom-install');
-const customStatus = document.getElementById('custom-status');
-let firmwareUrl = null, manifestUrl = null, selection = 0;
-
-function showCustomButton() {
-  customInstall.hidden = !(manifestUrl && customConfirm.checked);
-}
-
-function releaseCustomUrls() {
-  if (manifestUrl) URL.revokeObjectURL(manifestUrl);
-  if (firmwareUrl) URL.revokeObjectURL(firmwareUrl);
-  manifestUrl = firmwareUrl = null;
-}
-
-customFile.addEventListener('change', async () => {
-  const mySelection = ++selection;
-  releaseCustomUrls();
-  customConfirm.checked = false;
-  customConfirm.disabled = true;
-  showCustomButton();
-  const file = customFile.files[0];
-  if (!file) { customStatus.textContent = 'No file selected.'; return; }
-  try {
-    if (!('serial' in navigator))
-      throw new Error('Use Chrome or Edge on a computer with Web Serial.');
-    if (!file.name.toLowerCase().endsWith('.bin'))
-      throw new Error('Choose a .bin app image.');
-    const header = new Uint8Array(await file.slice(0, 40).arrayBuffer());
-    if (mySelection !== selection) return;
-    checkCustomAppImage(header, file.size);
-
-    firmwareUrl = URL.createObjectURL(file);
-    const manifest = makeCustomAppManifest(firmwareUrl);
-    manifestUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)],
-                                                { type: 'application/json' }));
-    customInstall.manifest = manifestUrl;
-    customConfirm.disabled = false;
-    customStatus.textContent = `${file.name} (${(file.size / 1048576).toFixed(2)} MiB) — ` +
-      'ESP32-S3 app image found. Back up the board before installing.';
-  } catch (err) {
-    releaseCustomUrls();
-    customStatus.textContent = `File rejected: ${err.message}`;
-  }
-});
-
-customConfirm.addEventListener('change', showCustomButton);
-window.addEventListener('pagehide', releaseCustomUrls);
+import { setupCustomUpdater } from './custom-ota-ui.mjs';
+setupCustomUpdater({ document, navigator, window });
 </script>
 </body>
 </html>
