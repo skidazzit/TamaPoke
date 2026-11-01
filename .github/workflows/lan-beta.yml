@@ -36,6 +36,12 @@ jobs:
           (cd /tmp && ./tamapoke-link-test)
           (cd /tmp && ./tamapoke-lossy-test)
 
+
+      - name: Check custom USB OTA and stable manifest safety
+        run: |
+          node web/custom-ota.test.mjs
+          python3 tools/check_installer.py
+
       - name: Build ESP32-S3 firmware
         run: |
           FQBN="esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB"
@@ -57,5 +63,20 @@ jobs:
         with:
           name: TamaPoke-LAN-beta-ESP32S3
           path: beta-out/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Pack separate custom USB beta installer
+        run: |
+          mkdir -p beta-web/firmware
+          cp web/index.html web/custom-ota.mjs web/manifest.json beta-web/
+          cp web/firmware/bootloader.bin web/firmware/partitions.bin web/firmware/boot_app0.bin web/firmware/app.bin beta-web/firmware/
+          cp web/BETA-USB.md beta-web/START-HERE.md
+
+      - name: Upload custom USB beta installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: TamaPoke-custom-USB-installer-beta
+          path: beta-web/
           if-no-files-found: error
           retention-days: 30
