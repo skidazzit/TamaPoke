@@ -55,10 +55,13 @@ export function setupCustomUpdater({
   let flashAttempted = false;
 
   function updateButtons() {
-    fileInput.disabled = !!loader || busy;
-    connectButton.disabled = busy || !!loader || !selectedFile || finished;
+    // Reading and backing up a board do not require a firmware image.
+    // A file may be chosen/replaced after the verified backup, but never
+    // while a USB operation is running or after a write has been attempted.
+    fileInput.disabled = busy || flashAttempted || finished;
+    connectButton.disabled = busy || !!loader || finished;
     backupButton.disabled = busy || !loader || !snapshot || backupVerified || finished;
-    flashButton.disabled = busy || !loader || !snapshot || !backupVerified ||
+    flashButton.disabled = busy || !loader || !snapshot || !backupVerified || !selectedFile ||
       finished || flashAttempted;
     disconnectButton.disabled = busy || !loader;
   }
@@ -80,20 +83,20 @@ export function setupCustomUpdater({
 
   fileInput.addEventListener('change', () => withBusy(async () => {
     selectedFile = null;
-    backupVerified = false;
-    snapshot = null;
     const file = fileInput.files?.[0];
-    if (!file) { report('No file selected.'); return; }
+    if (!file) { report('No file selected. You can still inspect and back up the board.'); return; }
     if (!file.name.toLowerCase().endsWith('.bin'))
       throw new Error('Choose a .bin app image.');
     const header = new Uint8Array(await file.slice(0, 40).arrayBuffer());
     checkCustomAppImage(header, file.size);
     selectedFile = file;
-    report(`${file.name} (${(file.size / 1048576).toFixed(2)} MiB) verified as an ESP32-S3 app image. Connect the board to inspect it.`);
+    report(`${file.name} (${(file.size / 1048576).toFixed(2)} MiB) verified as an ESP32-S3 app image. ` +
+      (backupVerified ? 'The verified backup already unlocks flashing.' :
+       'Inspect and back up the board before flashing.'));
   }));
 
   connectButton.addEventListener('click', () => withBusy(async () => {
-    if (!selectedFile || loader) return;
+    if (loader) return;
     if (!('serial' in navigator))
       throw new Error('Chrome or Edge with Web Serial is required.');
     if (typeof window.showSaveFilePicker !== 'function')
@@ -168,7 +171,9 @@ export function setupCustomUpdater({
         throw new Error('Board metadata changed during backup; no flash permitted.');
 
       backupVerified = true;
-      report('Verified: complete 16 MB backup saved and byte-for-byte checked. App0 is the OTA-selected slot. Flashing is now available for this same connected board.');
+      report('Verified: complete 16 MB backup saved and byte-for-byte checked. App0 is OTA-selected. ' +
+        (selectedFile ? 'The selected app is ready to flash on this same board.' :
+         'Select an app-only .bin to unlock the flash button.'));
     } finally {
       if (writable) await writable.abort().catch(() => {});
     }
@@ -216,8 +221,9 @@ export function setupCustomUpdater({
     flashAttempted = false;
     finished = false;
     if (currentTransport) await currentTransport.disconnect();
-    report('Disconnected. Press RESET on the board. Choose a file and connect again for the next board.');
+    report('Disconnected. Press RESET on the board. Connect and inspect again for the next board.');
   }));
 
   updateButtons();
+  report('Ready. Connect and inspect the board; you may choose an app-only .bin now or after its backup.');
 }

@@ -67,7 +67,8 @@ description, and the 3 MB app-slot size limit. This rejects a full merged
 firmware file, bootloader, and most wrong-board images. It cannot prove that
 an otherwise valid app was built for TamaPoke or its partition layout.
 
-**Automatic safety gate:** click **Connect & inspect board**. The page refuses
+**Automatic safety gate:** click **Connect & inspect board**, even without
+choosing a firmware file first. The page refuses
 unexpected flash size, security configuration, partition layout and ambiguous
 OTA metadata, or if the bootloader's selected slot is `app1`. Next, click
 **Save & verify full backup** to read all 16 MB, save it locally via the browser

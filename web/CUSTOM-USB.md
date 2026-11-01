@@ -8,8 +8,8 @@ before it offers a flash button.
 ## How the guarded custom updater works
 
 1. Use **desktop Chrome or Edge over HTTPS** with a data-capable USB cable.
-   Choose an ESP32-S3 **app-only** image (not merged firmware, bootloader,
-   partition table, or sprite bundle).
+   You may choose your ESP32-S3 **app-only** image at any point before
+   flashing (not merged firmware, bootloader, partition table, or sprites).
 2. Click **1. Connect & inspect board**. Select the correct USB port. The page
    uses Espressif's `esptool-js` and reads the board's flash metadata. It
    refuses any device that does not report:

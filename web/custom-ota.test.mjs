@@ -157,12 +157,27 @@ function fixture({ layout = partitions, ota = otadata, failBackup = false,
 }
 
 async function chooseAndInspect(t) {
+  assert.equal(t.connect.disabled, false, 'inspect must be available before choosing firmware');
   t.input.files = [new File([app], 'ota.bin')];
   await t.input.change();
   assert.equal(t.connect.disabled, false);
   assert.equal(t.flash.disabled, true, 'flash initially locked');
   await t.connect.click();
 }
+
+const inspectFirst = fixture();
+assert.equal(inspectFirst.connect.disabled, false, 'connect enabled immediately');
+assert.equal(inspectFirst.flash.disabled, true, 'flash locked without a firmware file');
+await inspectFirst.connect.click();
+assert.equal(inspectFirst.backup.disabled, false, 'board can be backed up before selecting an app');
+await inspectFirst.backup.click();
+assert.equal(inspectFirst.flash.disabled, true, 'backup does not bypass firmware selection');
+assert.equal(inspectFirst.input.disabled, false, 'file picker remains usable after backing up');
+inspectFirst.input.files = [new File([app], 'ota.bin')];
+await inspectFirst.input.change();
+assert.equal(inspectFirst.flash.disabled, false, 'choosing firmware after backup unlocks flash');
+await inspectFirst.flash.click();
+assert.equal(inspectFirst.calls.writes.length, 1, 'inspect-first workflow flashes once');
 
 const happy = fixture();
 await chooseAndInspect(happy);

@@ -86,8 +86,9 @@
 
   <h2>Optional: Custom OTA/app update (beta)</h2>
   <div class="step" style="border-left:4px solid #4f93c4">
-    <p>Already running TamaPoke? Choose a local ESP32-S3 <code>ota.bin</code> or
-       <code>app.bin</code> to update the app over <b>USB</b>. Before any write,
+    <p>Already running TamaPoke? Start with <b>Connect &amp; inspect board</b>.
+       You can choose a local ESP32-S3 <code>ota.bin</code> or
+       <code>app.bin</code> now or after the backup. Before any write,
        the updater checks the actual board's flash size, security settings,
        TamaPoke partition table and OTA-selected app slot. It then reads the
        <b>whole 16 MB flash</b>, saves a local backup and verifies that saved
@@ -101,9 +102,9 @@
       <label for="custom-file"><b>Select app-only .bin:</b></label>
       <input id="custom-file" type="file" accept=".bin,application/octet-stream">
     </div>
-    <p id="custom-status" class="note" role="status" aria-live="polite">No file selected.</p>
+    <p id="custom-status" class="note" role="status" aria-live="polite">Ready. Connect and inspect the board; choose firmware whenever you're ready.</p>
     <div class="row">
-      <button id="custom-connect" disabled>1. 🔌 Connect &amp; inspect board</button>
+      <button id="custom-connect">1. 🔌 Connect &amp; inspect board</button>
       <button id="custom-backup" disabled>2. 💾 Save &amp; verify full backup</button>
       <button id="custom-flash" disabled>3. ⚡ Flash verified app</button>
       <button id="custom-disconnect" disabled>Disconnect</button>
@@ -336,7 +337,7 @@ document.getElementById('files').onchange = async (ev) => {
 };
 </script>
 <script type="module">
-import { setupCustomUpdater } from './custom-ota-ui.mjs?v=backup-preflight-1';
+import { setupCustomUpdater } from './custom-ota-ui.mjs?v=backup-preflight-2';
 setupCustomUpdater({ document, navigator, window });
 </script>
 </body>
