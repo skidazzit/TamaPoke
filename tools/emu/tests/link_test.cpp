@@ -53,6 +53,10 @@ int main(){
   B.addMon(mon(65,50,"SPOON"));
   A.start();
   ck(A.state==LINK_READY && B.state==LINK_READY, "both reach READY from one hello");
+  ck(!strcmp(A.peerName,"GUEST") && !strcmp(B.peerName,"HOST"),
+     "both screens show the other trainer, not their own name");
+  ck(!strcmp(A.myName,"HOST") && !strcmp(B.myName,"GUEST"),
+     "the local HELLO name stays unchanged after receiving a peer name");
   ck(B.theirsN==2 && A.theirsN==1, "each ends up with the other's squad");
   ck(B.theirs[0].dex==6 && A.theirs[0].dex==65, "and the right creatures in it");
   ck(!strcmp(B.theirs[1].name,"SHELL"), "names survive the wire");

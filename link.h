@@ -118,6 +118,7 @@ struct Link {
   uint16_t buildTheirs = 0;
   uint16_t id = 0;             // breaks the tie when both sides offer to host
   uint16_t peerId = 0;
+  char myName[LINK_NAME_LEN] = ""; // immutable local name for HELLO replies
   char peerName[LINK_NAME_LEN] = "";
 
   LinkMon mine[TRAINER_TEAM_MAX];

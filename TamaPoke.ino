@@ -4786,7 +4786,6 @@ static void lanOffer(bool host) {
   // on whether the radio comes up -- doing it the other way round meant a
   // failed radio skipped the squad entirely and left nothing to inspect.
   lan.begin(host, pet.trainerName);
-  snprintf(lan.peerName, sizeof(lan.peerName), "%s", pet.trainerName);
   buildSquad(0, TRAINER_TEAM_MAX, squadMask);
   for (uint8_t i = 0; i < btlSquadN; i++) {
     LinkMon m;
