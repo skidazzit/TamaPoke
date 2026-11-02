@@ -64,7 +64,15 @@ int main(){
      "a wire creature restores at full health");
   ck(back.base[SI_ATK]==A.mine[0].base[SI_ATK], "with its stats intact");
 
-  // --- the turn flow
+  // --- the turn flow: neither side may submit or accept before battle starts.
+  uint8_t preBattle[6]={LM_ACT,4,0,1,0,LINK_ACT_MOVE(0)};
+  A.onPacket(preBattle, sizeof(preBattle));
+  ck(!A.hasPeerAct(), "early or stale actions cannot start a battle");
+  B.sendAct(LINK_ACT_MOVE(0));
+  ck(B.state==LINK_READY, "guest cannot send before entering battle");
+  A.startBattle(); B.startBattle();
+  ck(A.battleActive && B.battleActive && A.battleSeq==1 && B.battleSeq==1,
+     "both start the same numbered match");
   ck(A.turn==0 && B.turn==0, "both start on turn zero");
   B.sendAct(LINK_ACT_MOVE(0));
   ck(A.hasPeerAct(), "the host receives the guest's action");
@@ -84,8 +92,8 @@ int main(){
 
   A.pendingAct = 0;
   B.state = LINK_READY;
-  B.sendAct(LINK_ACT_SWITCH_TO(3));
-  ck(LINK_ACT_IS_SWITCH(A.pendingAct) && LINK_ACT_SLOT(A.pendingAct)==3,
+  B.sendAct(LINK_ACT_SWITCH_TO(0));
+  ck(LINK_ACT_IS_SWITCH(A.pendingAct) && LINK_ACT_SLOT(A.pendingAct)==0,
      "a switch is carried in the same message as a move");
 
   uint8_t blob[4]={1,2,3,4};
@@ -96,8 +104,8 @@ int main(){
 
   // a stale action -- the resend of a turn already resolved -- is not a choice
   A.pendingAct = 0;
-  uint8_t stale[4]={LM_ACT,2,0,LINK_ACT_MOVE(1)};   // turn 0, already done
-  A.onPacket(stale,4);
+  uint8_t stale[6]={LM_ACT,4,0,1,0,LINK_ACT_MOVE(1)};
+  A.onPacket(stale,sizeof(stale));
   ck(!A.hasPeerAct(), "a resent action from a finished turn is ignored");
 
   // the real payload: what the guest actually renders a turn from
@@ -117,7 +125,7 @@ int main(){
 
   // the guest never acts on an action; the host never accepts a result
   B.pendingAct=0;
-  B.onPacket((const uint8_t[]){LM_ACT,2,0,1},4);
+  B.onPacket((const uint8_t[]){LM_ACT,4,0,1,0,1},6);
   ck(B.pendingAct==0, "the guest ignores ACT packets");
   uint8_t was=A.turn;
   A.onPacket((const uint8_t[]){LM_RESULT,1,0},3);
@@ -129,6 +137,16 @@ int main(){
   ck(A.youWon && !B.youWon, "and agree on who won");
   B.onPacket(lateSquad, sizeof(lateSquad));
   ck(B.state==LINK_DONE, "a late squad cannot reopen a finished battle");
+  B.sendRematch();
+  ck(A.state==LINK_READY && B.state==LINK_READY &&
+     !A.battleActive && !B.battleActive,
+     "rematch disarms both sides before new choices");
+  A.startBattle(); B.startBattle();
+  ck(A.battleSeq==2 && B.battleSeq==2, "rematch uses a fresh session ID");
+  A.onPacket(preBattle,sizeof(preBattle));
+  ck(!A.hasPeerAct(), "old match action is rejected even with turn zero");
+  B.sendAct(LINK_ACT_MOVE(0));
+  ck(A.hasPeerAct(), "new match action with current session is accepted");
 
   // --- roles: two hosts, or two guests, must resolve to exactly one host
   {
