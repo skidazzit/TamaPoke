@@ -32,7 +32,7 @@
 // whole handshake without a radio, and a deliberately lossy transport exercises
 // all of the above. Only the radio itself is unverifiable here.
 
-#define LINK_PROTO 5        // Pokémon-style simultaneous choices; reject v4 peers
+#define LINK_PROTO 6        // battle-session IDs reject stale move packets
 #define LINK_MAX_PAYLOAD 200
 #define LINK_NAME_LEN 12
 
@@ -127,6 +127,8 @@ struct Link {
   uint8_t theirsExpected = 0;  // from their hello, so a lost SQUAD is detectable
   uint16_t theirsGot = 0;      // which slots have actually arrived
 
+  uint16_t battleSeq = 0;      // new ID for each match, including rematches
+  bool battleActive = false;   // only accept actions after entering battle
   uint8_t turn = 0;            // the exchange both sides are on
   uint8_t pendingAct = 0;      // host: the guest's action for `turn`, 0 = none
   bool youWon = false;
@@ -155,6 +157,7 @@ struct Link {
   void begin(bool host, const char *myName);
   void addMon(const LinkMon &m);
   void start();                       // announce: hello, then squad
+  void startBattle();                 // arm a fresh match, discard early actions
   void onPacket(const uint8_t *buf, uint8_t len);
   void tick(uint32_t now);            // resend + timeout; call once a frame
 
@@ -171,7 +174,7 @@ struct Link {
   }
   // the host's own action is its own business; this is the guest's, and it
   // only counts once it has actually arrived
-  bool hasPeerAct() const { return isHost && pendingAct != 0; }
+  bool hasPeerAct() const { return isHost && battleActive && pendingAct != 0; }
 };
 
 // Everything that must match for two builds to narrate the same fight. NOT the
