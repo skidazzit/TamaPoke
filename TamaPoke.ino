@@ -447,12 +447,29 @@ uint8_t playerPage = 0;
 
 uint32_t lanWins = 0, lanLosses = 0;
 bool lanRecordCounted = false;
+#define LAN_RECENT_MAX 5
+struct LanMatch {
+  char opponent[LINK_NAME_LEN];
+  uint8_t won;
+};
+LanMatch lanRecent[LAN_RECENT_MAX] = {};
+uint8_t lanRecentCount = 0;
 
 static void lanRecordLoad() {
   Preferences p;
   if (!p.begin("tamapoke", true)) return;
   lanWins = p.getUInt("lnwin", 0);
   lanLosses = p.getUInt("lnloss", 0);
+  // Fixed-size entries make it safe to reject old or damaged history blobs.
+  uint8_t raw[1 + sizeof(lanRecent)];
+  if (p.getBytesLength("lnhist") == sizeof(raw) &&
+      p.getBytes("lnhist", raw, sizeof(raw)) == sizeof(raw) &&
+      raw[0] <= LAN_RECENT_MAX) {
+    lanRecentCount = raw[0];
+    memcpy(lanRecent, raw + 1, sizeof(lanRecent));
+    for (uint8_t i = 0; i < lanRecentCount; ++i)
+      lanRecent[i].opponent[LINK_NAME_LEN - 1] = 0;
+  }
   p.end();
 }
 
@@ -460,11 +477,20 @@ static void lanRecordResult(bool won) {
   if (!btlLink || lanRecordCounted) return;
   lanRecordCounted = true;
   uint32_t &count = won ? lanWins : lanLosses;
-  if (count == UINT32_MAX) return;
   Preferences p;
   if (!p.begin("tamapoke", false)) return;
-  ++count;
+  if (count != UINT32_MAX) ++count;
   p.putUInt(won ? "lnwin" : "lnloss", count);
+  for (uint8_t i = LAN_RECENT_MAX - 1; i > 0; --i)
+    lanRecent[i] = lanRecent[i - 1];
+  snprintf(lanRecent[0].opponent, sizeof(lanRecent[0].opponent), "%s",
+           lan.peerName[0] ? lan.peerName : "PLAYER");
+  lanRecent[0].won = won ? 1 : 0;
+  if (lanRecentCount < LAN_RECENT_MAX) ++lanRecentCount;
+  uint8_t raw[1 + sizeof(lanRecent)];
+  raw[0] = lanRecentCount;
+  memcpy(raw + 1, lanRecent, sizeof(lanRecent));
+  p.putBytes("lnhist", raw, sizeof(raw));
   p.end();
 }
 uint8_t gymPage = 0;
@@ -4292,26 +4318,45 @@ static void renderPlayerLanRecord() {
   gfx->setTextColor(UI_INK);
   gfx->setTextSize(3);
   const char *title = "LAN RECORD";
-  gfx->setCursor(CX - (int)strlen(title) * 9, 60);
+  gfx->setCursor(CX - (int)strlen(title) * 9, 43);
   gfx->print(title);
 
-  gfx->fillRoundRect(78, 116, 310, 80, 16, UI_BAR_OK);
-  gfx->fillRoundRect(78, 208, 310, 80, 16, UI_TRACK);
+  gfx->fillRoundRect(78, 84, 150, 80, 16, UI_BAR_OK);
+  gfx->fillRoundRect(238, 84, 150, 80, 16, UI_TRACK);
   gfx->setTextColor(UI_INK);
+  gfx->setTextSize(1);
+  gfx->setCursor(135, 96); gfx->print("WINS");
+  gfx->setCursor(292, 96); gfx->print("LOSSES");
   gfx->setTextSize(2);
-  gfx->setCursor(104, 142); gfx->print("WINS");
-  gfx->setCursor(104, 234); gfx->print("LOSSES");
-  gfx->setTextSize(3);
-  gfx->setCursor(255, 137); gfx->print(lanWins);
-  gfx->setCursor(255, 229); gfx->print(lanLosses);
+  gfx->setCursor(120, 122); gfx->print(lanWins);
+  gfx->setCursor(280, 122); gfx->print(lanLosses);
 
   uint64_t total = (uint64_t)lanWins + lanLosses;
   uint32_t rate = total ? (uint32_t)((uint64_t)lanWins * 100 / total) : 0;
   char line[40];
   snprintf(line, sizeof(line), "WIN RATE  %lu%%", (unsigned long)rate);
   gfx->setTextSize(2);
-  gfx->setCursor(CX - (int)strlen(line) * 6, 314);
+  gfx->setCursor(CX - (int)strlen(line) * 6, 181);
   gfx->print(line);
+
+  gfx->setTextSize(2);
+  gfx->setCursor(96, 211);
+  gfx->print("RECENT BATTLES");
+  gfx->setTextSize(1);
+  if (!lanRecentCount) {
+    gfx->setCursor(112, 256);
+    gfx->print("No LAN battles yet");
+  }
+  for (uint8_t i = 0; i < lanRecentCount; ++i) {
+    int y = 238 + i * 24;
+    gfx->fillRoundRect(100, y, 266, 22, 6, i % 2 ? UI_TRACK : UI_WHITE);
+    gfx->setTextColor(lanRecent[i].won ? UI_BAR_OK : UI_BAR_BAD);
+    gfx->setCursor(112, y + 7);
+    gfx->print(lanRecent[i].won ? "WIN" : "LOSS");
+    gfx->setTextColor(UI_INK);
+    gfx->setCursor(184, y + 7);
+    gfx->print(lanRecent[i].opponent);
+  }
 }
 
 void renderPlayer() {
@@ -4697,8 +4742,10 @@ void renderLan() {
     if (lan.peerName[0]) {
       gfx->setTextColor(UI_INK);
       gfx->setTextSize(2);
-      gfx->setCursor(CX - (int)strlen(lan.peerName) * 6, 122);
-      gfx->print(lan.peerName);
+      char opponent[LINK_NAME_LEN + 6];
+      snprintf(opponent, sizeof(opponent), "VS %s", lan.peerName);
+      gfx->setCursor(CX - (int)strlen(opponent) * 6, 122);
+      gfx->print(opponent);
     }
     gfx->setTextColor(UI_INK);
     gfx->setTextSize(2);

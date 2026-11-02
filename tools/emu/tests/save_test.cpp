@@ -55,6 +55,11 @@ int main(){
     prefs.begin("tamapoke", false);
     prefs.putUInt("lnwin", 12);
     prefs.putUInt("lnloss", 5);
+    uint8_t history[66] = {};
+    history[0] = 1;             // one recent match
+    memcpy(history + 1, "RIVAL", 6);
+    history[13] = 1;           // win; each entry is 12 name bytes + result
+    prefs.putBytes("lnhist", history, sizeof(history));
     prefs.end();
   }
 
@@ -112,6 +117,12 @@ int main(){
     prefs.begin("tamapoke", true);
     ck(prefs.getUInt("lnwin", 0) == 12 && prefs.getUInt("lnloss", 0) == 5,
        "LAN wins and losses survive export/import");
+    uint8_t history[66] = {};
+    ck(prefs.getBytesLength("lnhist") == sizeof(history) &&
+       prefs.getBytes("lnhist", history, sizeof(history)) == sizeof(history) &&
+       history[0] == 1 && !strcmp((const char *)(history + 1), "RIVAL") &&
+       history[13] == 1,
+       "recent opponent and result survive export/import");
     prefs.end();
   }
 
