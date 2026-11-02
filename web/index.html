@@ -106,6 +106,19 @@
        two-board gameplay tests.</p>
   </div>
 
+
+  <h2>LAN Battle Record — Wins &amp; Losses (Beta)</h2>
+  <div class="step" style="border-left:4px solid #58b868;background:#f5fff5">
+    <p><b>🏆 New Trainer Card page:</b> track LAN wins, losses, and win rate. Results are saved across restarts and included in backups.</p>
+    <p>Includes LAN protocol v6 phantom-action protection. <b>Install this beta on both boards</b> to battle each other.</p>
+    <esp-web-install-button manifest="manifest-lan-record.json">
+      <button slot="activate">🏆 Install LAN Battle Record Beta</button>
+      <span slot="unsupported">Browser not supported (use Chrome/Edge).</span>
+      <span slot="not-allowed">Needs HTTPS.</span>
+    </esp-web-install-button>
+    <p class="note"><b>Leave “Erase device” unchecked.</b> Firmware writes stay clear of NVS and FFAT saves. Back up your save first. Two-board gameplay testing is still pending.</p>
+  </div>
+
   <h2>Optional: Custom OTA/app update (beta)</h2>
   <div class="step" style="border-left:4px solid #4f93c4">
     <p>Already running TamaPoke? Start with <b>Connect &amp; inspect board</b>.
