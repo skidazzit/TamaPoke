@@ -50,6 +50,13 @@ int main(){
   // renameTrainer() persists, and save() writes every field -- so this is also
   // what commits everything set above. save() itself is private on purpose.
   pet.renameTrainer("DYLAN");
+  {
+    Preferences prefs;
+    prefs.begin("tamapoke", false);
+    prefs.putUInt("lnwin", 12);
+    prefs.putUInt("lnloss", 5);
+    prefs.end();
+  }
 
   // --- COMPLETENESS. Everything the firmware stored must be in the table.
   // This is what stops the backup rotting: add a key to pet.cpp and forget
@@ -100,6 +107,13 @@ int main(){
   pet.factoryReset();
   ck(nvs().empty() || nvs().count("party")==0, "the wipe really emptied NVS");
   ck(saveImport(buf, n), "the backup imports");
+  {
+    Preferences prefs;
+    prefs.begin("tamapoke", true);
+    ck(prefs.getUInt("lnwin", 0) == 12 && prefs.getUInt("lnloss", 0) == 5,
+       "LAN wins and losses survive export/import");
+    prefs.end();
+  }
 
   Pet p2; Party q2;
   p2.begin(); q2.begin();

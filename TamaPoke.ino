@@ -33,6 +33,7 @@
 #include "rtcbat.h"
 #include "i18n.h"
 #include "audio.h"
+#include <Preferences.h>
 
 // Version del firmware. Subir este numero en cada release (y manifest.json para
 // el instalador web). Se muestra en la pantalla de ajustes y por serie al arrancar.
@@ -441,8 +442,31 @@ bool playerOpen = false;
 // one page, and the page you are on IS the region -- no extra control needed,
 // and horizontal paging already works everywhere else.
 uint8_t playerPage = 0;
-#define PLAYER_PAGES (GYM_REGIONS + 1)
+#define PLAYER_PAGES (GYM_REGIONS + 2) // badges, medals, LAN record
 #define playerBadgeRegion (playerPage % GYM_REGIONS)
+
+uint32_t lanWins = 0, lanLosses = 0;
+bool lanRecordCounted = false;
+
+static void lanRecordLoad() {
+  Preferences p;
+  if (!p.begin("tamapoke", true)) return;
+  lanWins = p.getUInt("lnwin", 0);
+  lanLosses = p.getUInt("lnloss", 0);
+  p.end();
+}
+
+static void lanRecordResult(bool won) {
+  if (!btlLink || lanRecordCounted) return;
+  lanRecordCounted = true;
+  uint32_t &count = won ? lanWins : lanLosses;
+  if (count == UINT32_MAX) return;
+  Preferences p;
+  if (!p.begin("tamapoke", false)) return;
+  ++count;
+  p.putUInt(won ? "lnwin" : "lnloss", count);
+  p.end();
+}
 uint8_t gymPage = 0;
 #define GYM_ROWS 5
 #define GYM_ROW_Y(i) (110 + (i) * 50)
@@ -644,6 +668,7 @@ bool holdFired = false;
 void setup() {
   Serial.setRxBufferSize(8192);  // la transferencia a SD llega en bloques de 2 KB
   Serial.begin(115200);
+  lanRecordLoad();
   // CRITICO: sin esto, Serial.print BLOQUEA el juego cuando no hay un
   // monitor serie abierto en el host (el bufer TX del USB CDC se llena
   // y nadie lo vacia) -> con timeout 0 los mensajes se descartan
@@ -3351,6 +3376,7 @@ void startLinkBattle() {
   if (!btlSquadN) return;
   btlYou = btlSquad[0];
   btlLink = true;
+  lanRecordCounted = false;
   btlLinkHost = lan.isHost;
   btlTrainer = -1;
   btlHard = false;
@@ -3528,6 +3554,7 @@ static void btlLinkPoll() {
   if (lan.state == LINK_DONE && !btlOver) {
     btlOver = true;
     btlWon = lan.youWon;
+    lanRecordResult(btlWon);
     audioMusic(btlWon ? MUS_VICTORY : MUS_NONE);
     if (btlWon) sfxPlay(SFX_VICTORY);
     btlSay("%s", btlWon ? T(S_BTL_WIN) : T(S_BTL_LOSE));
@@ -3652,7 +3679,10 @@ static void btlResolve(uint8_t yourMove) {
     if (btlWon) sfxPlay(SFX_VICTORY);
     // Tell the peer before anything else: if we stop here without sending, the
     // other device sits on a battle that will never take another turn.
-    if (btlLink && btlLinkHost) lan.sendEnd(btlWon);
+    if (btlLink && btlLinkHost) {
+      lan.sendEnd(btlWon);
+      lanRecordResult(btlWon);
+    }
     if (btlLink) { btlSay("%s", btlWon ? T(S_BTL_WIN) : T(S_BTL_LOSE)); return; }
     if (btlWon && btlTrainer >= 0) { btlWinUntil = millis() + 60000; return; }
     btlSay("%s", T(S_BTL_LOSE));
@@ -4258,11 +4288,38 @@ static void renderPlayerMedals() {
   gfx->print(tot);
 }
 
+static void renderPlayerLanRecord() {
+  gfx->setTextColor(UI_INK);
+  gfx->setTextSize(3);
+  const char *title = "LAN RECORD";
+  gfx->setCursor(CX - (int)strlen(title) * 9, 60);
+  gfx->print(title);
+
+  gfx->fillRoundRect(78, 116, 310, 80, 16, UI_BAR_OK);
+  gfx->fillRoundRect(78, 208, 310, 80, 16, UI_TRACK);
+  gfx->setTextColor(UI_INK);
+  gfx->setTextSize(2);
+  gfx->setCursor(104, 142); gfx->print("WINS");
+  gfx->setCursor(104, 234); gfx->print("LOSSES");
+  gfx->setTextSize(3);
+  gfx->setCursor(255, 137); gfx->print(lanWins);
+  gfx->setCursor(255, 229); gfx->print(lanLosses);
+
+  uint64_t total = (uint64_t)lanWins + lanLosses;
+  uint32_t rate = total ? (uint32_t)((uint64_t)lanWins * 100 / total) : 0;
+  char line[40];
+  snprintf(line, sizeof(line), "WIN RATE  %lu%%", (unsigned long)rate);
+  gfx->setTextSize(2);
+  gfx->setCursor(CX - (int)strlen(line) * 6, 314);
+  gfx->print(line);
+}
+
 void renderPlayer() {
   gfx->fillScreen(RGB565_BLACK);
   gfx->fillCircle(CX, CY, 231, UI_BG_DAY);
   if (playerPage < GYM_REGIONS) renderPlayerBadges();
-  else renderPlayerMedals();
+  else if (playerPage == GYM_REGIONS) renderPlayerMedals();
+  else renderPlayerLanRecord();
 
   for (uint8_t i = 0; i < PLAYER_PAGES; i++) {
     int dx = CX - (PLAYER_PAGES - 1) * 13 + i * 26;
