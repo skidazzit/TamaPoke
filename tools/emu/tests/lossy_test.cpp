@@ -106,6 +106,7 @@ int main(){
   pair(true,false);
   run(4000);
   ck(A.ready() && B.ready(), "a fight can start");
+  A.startBattle(); B.startBattle();
   int turns = 0;
   uint8_t hp = 200;
   for (int i = 0; i < 12 && A.state==LINK_READY; i++) {
@@ -128,6 +129,7 @@ int main(){
   pair(true,false);
   run(3000);
   ck(A.ready() && B.ready(), "pairing survives every frame arriving twice");
+  A.startBattle(); B.startBattle();
   uint8_t t0 = A.turn;
   B.sendAct(1);
   run(1000);
@@ -148,6 +150,7 @@ int main(){
     ck(A.ready() && B.ready(), "paired for an idle test");
     run(LINK_BATTLE_TIMEOUT_MS * 3, 250);
     ck(A.ready() && B.ready(), "both stay paired while players choose a team");
+    A.startBattle(); B.startBattle();
 
     B.sendAct(LINK_ACT_MOVE(0));
     run(LINK_BATTLE_TIMEOUT_MS * 2, 250);
@@ -176,6 +179,7 @@ int main(){
     seen=dropped=0; dropEvery=0; dupEvery=0;
     pair(true,false);
     run(3000);
+    A.startBattle(); B.startBattle();
     B.sendAct(1); run(600);
     deaf = true;                        // the guest hears nothing at all
     LinkResult r1{}; r1.hostHp=80; r1.guestHp=80;
@@ -210,6 +214,7 @@ int main(){
     pair(true,false);
     run(3000);
     ck(A.ready(), "paired");
+    A.startBattle(); B.startBattle();
     deaf=true;
     run(LINK_BATTLE_TIMEOUT_MS + 2000, 500);
     ck(A.state==LINK_LOST && B.state==LINK_LOST, "both give up mid-fight");
@@ -229,6 +234,7 @@ int main(){
   {
     pair(true,false);
     run(3000);
+    A.startBattle(); B.startBattle();
     B.sendAct(1); run(600);
     LinkResult r{}; r.hostHp=10; r.guestHp=10;
     A.sendResult((const uint8_t*)&r, sizeof(r));
