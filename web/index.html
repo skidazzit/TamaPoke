@@ -90,13 +90,13 @@
        that has never run TamaPoke it makes no difference either way.</p>
   </div>
 
-  <h2>LAN Battle v5 — Pokémon Rounds (Beta)</h2>
+  <h2>LAN Battle v6 — No Phantom Moves (Beta)</h2>
   <div class="step" style="border-left:4px solid #d48c25;background:#fffaf0">
-    <p><b>🧪 Test build: choose moves together, then watch attacks resolve by priority and Speed.</b></p>
-    <p>Both ESP32-S3 boards must use LAN protocol v5 to battle each other.
+    <p><b>🧪 Test build: both players must pick a move before the round resolves. Old move packets are rejected.</b></p>
+    <p>Both ESP32-S3 boards must use LAN protocol v6 to battle each other.
        The stable installer above stays unchanged.</p>
-    <esp-web-install-button manifest="manifest-pokemon-v5.json">
-      <button slot="activate">🧪 Install LAN Battle v5 Beta</button>
+    <esp-web-install-button manifest="manifest-lan-v6.json">
+      <button slot="activate">🧪 Install LAN Battle v6 Beta</button>
       <span slot="unsupported">Browser not supported (use Chrome/Edge).</span>
       <span slot="not-allowed">Needs HTTPS.</span>
     </esp-web-install-button>
