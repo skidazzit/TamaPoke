@@ -94,41 +94,44 @@ int main(){
   ck(btlFoeSquad[1].hp==7 && btlFoeSquad[1].maxHp>7,
      "so a creature that switches out can stay hurt");
 
-  // --- the host attacks first, with no guest action required.
-  btlLinkHost = true; btlLink = true; btlOver = false;
-  lan.isHost = true; lan.turn = 0; lan.state = LINK_READY;
-  lan.pendingAct = 0; btlMyAct = 0; btlMsgCount = 0;
-  btlMenu = 1;
-  battleTap(69 + 10, 286 + 10);
-  ck(lan.turn == 1, "host action advances the turn without a guest move");
-  ck(!lan.pendingAct, "host action does not consume a guest choice");
-
-  // --- guest must wait on even turns, then may act on odd turns.
-  btlLinkHost = false; lan.isHost = false;
-  lan.turn = 0; lan.state = LINK_READY;
-  btlMenu = 1; btlMsgCount = 0;
-  sent = 0;
-  battleTap(69 + 10, 286 + 10);
-  ck(sent == 0, "guest cannot attack during the host's turn");
-
-  lan.turn = 1; lan.state = LINK_READY; btlMenu = 2;
+  // --- the guest ASKS to switch; it never switches on its own, because the
+  // host is the only side that may spend a turn
+  btlLinkHost = false;
+  lan.isHost = false;
+  lan.state = LINK_READY;
+  btlMenu = 2;                       // the POKEMON list
   uint8_t was = btlSquadAt;
-  battleTap(69 + 168 + 10, 286 + 10);
-  ck(btlSquadAt == was, "guest sends a switch without changing its own team");
-  ck(sent == 1 && lastPkt[0] == LM_ACT,
-     "guest action is transmitted on its turn");
-  ck(LINK_ACT_IS_SWITCH(lastPkt[3]) && LINK_ACT_SLOT(lastPkt[3]) == 1,
-     "guest switch names the selected slot");
-  ck(lan.state == LINK_WAITING, "guest waits for host's result");
+  sent = 0;
+  battleTap(69 + 168 + 10, 286 + 10);   // cell 1 of the switch grid
+  ck(btlSquadAt==was, "the guest does not switch locally");
+  ck(sent==1 && lastPkt[0]==LM_ACT, "it sends the request instead");
+  ck(LINK_ACT_IS_SWITCH(lastPkt[3]) && LINK_ACT_SLOT(lastPkt[3])==1,
+     "and the request names the slot it wants");
+  ck(lan.state == LINK_WAITING, "a chosen action waits for the other player");
+  battleTap(69 + 10, 286 + 10);
+  ck(sent == 1, "extra taps cannot replace the locked choice");
 
-  // --- host resolves the guest action alone on the next frame.
-  btlLinkHost = true; lan.isHost = true;
-  lan.turn = 1; lan.state = LINK_READY;
+  // --- the host LATCHES its own action instead of throwing it away
+  btlLinkHost = true;
+  lan.isHost = true;
+  lan.state = LINK_READY;
+  btlLink = true;
+  btlOver = false;
   btlMsgCount = 0;
+  lan.pendingAct = 0;
+  btlMyAct = 0;
+  btlMenu = 1;                       // the move grid
+  uint16_t hpWas = btlFoe.hp;
+  battleTap(69 + 10, 286 + 10);      // move slot 0
+  ck(btlMyAct != 0, "the host latches its move while the rival is still choosing");
+  ck(btlFoe.hp == hpWas, "and nothing is resolved yet");
+  battleTap(69 + 168 + 10, 286 + 10);
+  ck(btlMyAct == LINK_ACT_MOVE(0),
+     "host choice stays locked until both moves arrive");
   lan.pendingAct = LINK_ACT_MOVE(0);
-  render();
-  ck(lan.turn == 2 && !lan.pendingAct,
-     "guest action resolves and hands the next turn to host");
+  render();                          // btlLinkPoll spots that both are in
+  ck(btlMyAct == 0 && !lan.pendingAct,
+     "and the turn goes as soon as the rival's action lands");
 
   // --- a peer that goes quiet ends the fight rather than hanging on it
   btlOver = false; btlMsgCount = 0;
