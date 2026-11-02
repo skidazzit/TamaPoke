@@ -4060,6 +4060,7 @@ void battleTap(int16_t x, int16_t y) {
     btlMsgCount = 0;
     if (btlOver) {
       btlFreeSprites();
+      audioMusic(MUS_NONE);
       battleOpen = false;
       // Back to the LAN screen rather than all the way out: that is where a
       // rematch is offered, and re-pairing for every fight would be tedious.
@@ -4647,6 +4648,7 @@ void renderLan() {
 // Leaving deliberately: tell the peer so it reports at once instead of sitting
 // out the timeout, then free the radio -- it costs real current.
 void lanLeave() {
+  audioMusic(MUS_NONE);
   if (lan.live()) lan.sendBye();
   linkNowEnd();
   lan.state = LINK_OFF;
