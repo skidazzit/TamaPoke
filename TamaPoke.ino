@@ -3331,10 +3331,10 @@ uint8_t squadCap(uint8_t idx, bool hard) {
 
 // A fight against another device. The squads are already exchanged; the host
 // owns resolution and the guest renders what it is sent.
-static bool btlLinkCanAct() {
-  // One action per turn: host starts, then guest, then host again.
-  return btlLink && !btlOver && lan.state == LINK_READY &&
-         (lan.isHost == ((lan.turn & 1u) == 0));
+// A Pokémon round starts with each player choosing one action.
+// The host resolves both choices by priority and Speed once both are locked.
+static bool btlLinkSubmitted() {
+  return btlLink && (btlLinkHost ? btlMyAct != 0 : lan.state == LINK_WAITING);
 }
 
 void startLinkBattle() {
@@ -3506,18 +3506,22 @@ static void btlLinkPoll() {
   }
 
   if (btlLinkHost) {
-    // Odd turns belong to the guest. Their action is resolved alone.
-    if ((lan.turn & 1u) && lan.hasPeerAct() && !btlOver && !btlMsgCount &&
+    // Our own action was latched when it was tapped; theirs arrives whenever
+    // the radio manages it. Whichever is second sets the turn going.
+    if (btlMyAct && lan.hasPeerAct() && !btlOver && !btlMsgCount &&
         btlSwapWho < 0) {
-      btlResolve(0);
-      if (!btlOver) sfxPlay(SFX_TAP);  // next turn belongs to this board
+      uint8_t act = btlMyAct;
+      btlMyAct = 0;
+      if (LINK_ACT_IS_SWITCH(act)) btlSwitchTo(LINK_ACT_SLOT(act));
+      else btlResolve(btlYou.moves[LINK_ACT_SLOT(act) % MOVE_SLOTS]);
+      if (!btlOver) sfxPlay(SFX_TAP); // next round: choose a move
     }
     return;
   }
 
   if (lan.resultNew) {
     btlApplyResult();
-    if (btlLinkCanAct()) sfxPlay(SFX_TAP);
+    if (!btlOver) sfxPlay(SFX_TAP); // new round is ready
   }
   if (lan.state == LINK_DONE && !btlOver) {
     btlOver = true;
@@ -3577,22 +3581,17 @@ static void btlResolve(uint8_t yourMove) {
   }
   (void)foeSwitched;
 
-  // LAN turns alternate. Never let speed order grant two attacks in one turn.
-  bool youFirst = btlLink ? ((lan.turn & 1u) == 0) :
-                  battleMovesFirst(btlYou, yourMove, btlFoe, foeMove);
+  bool youFirst = battleMovesFirst(btlYou, yourMove, btlFoe, foeMove);
   Combatant *a = youFirst ? &btlYou : &btlFoe;
   Combatant *b = youFirst ? &btlFoe : &btlYou;
   uint8_t ma = youFirst ? yourMove : foeMove;
   uint8_t mb = youFirst ? foeMove : yourMove;
 
   uint16_t hp0You = btlYou.hp, hp0Foe = btlFoe.hp;
-  if (!btlLink || ma) {
-    battleAct(*a, *b, ma, lg);
-    btlNarrate(*a, *b, lg);
-    if (lg.damage && !lg.hurtSelf)
-      btlLungeUntil[a == &btlYou ? 0 : 1] = now + BTL_LUNGE_MS;
-  }
-  if (!btlLink && !b->fainted()) {
+  battleAct(*a, *b, ma, lg);
+  btlNarrate(*a, *b, lg);
+  if (lg.damage && !lg.hurtSelf) btlLungeUntil[a == &btlYou ? 0 : 1] = now + BTL_LUNGE_MS;
+  if (!b->fainted()) {
     battleAct(*b, *a, mb, lg);
     btlNarrate(*b, *a, lg);
     if (lg.damage && !lg.hurtSelf)
@@ -3601,15 +3600,13 @@ static void btlResolve(uint8_t yourMove) {
   // whoever actually lost health flinches, whichever side dealt it
   if (btlYou.hp < hp0You) btlHitUntil[0] = now + BTL_HIT_MS;
   if (btlFoe.hp < hp0Foe) btlHitUntil[1] = now + BTL_HIT_MS;
-  // Status damage ticks once per pair of LAN actions, after the guest acts.
-  if ((!btlLink || (lan.turn & 1u)) &&
-      !btlYou.fainted() && !btlFoe.fainted()) {
+  if (!btlYou.fainted() && !btlFoe.fainted()) {
     battleEndTurn(btlYou, lg);
     if (lg.damage) btlNarrate(btlYou, btlYou, lg);
     battleEndTurn(btlFoe, lg);
     if (lg.damage) btlNarrate(btlFoe, btlFoe, lg);
   }
-  // Ship the final HP after end-of-round damage, so both boards show one state.
+  // Send HP after poison/burn ticks, not before; the guest must see final HP.
   if (btlLink && btlLinkHost) btlShipResult(yourMove, foeMove, hp0You, hp0Foe);
   // Someone went down. The replacement is NOT swapped in here -- that made the
   // change instant and read as a jump cut. Flag it, let the sprite drop out of
@@ -3861,13 +3858,13 @@ void renderBattle() {
   // Waiting on the other device. Without this the screen is identical to the
   // one where it is your turn, so a tap that has been sent and a tap that was
   // never registered look exactly the same.
-  bool lanWait = btlLink && !btlOver && !btlLinkCanAct();
-  if (btlLink && !btlOver && btlLinkCanAct() && !btlMsgCount) {
-    gfx->fillRoundRect(170, 260, 126, 28, 8, UI_BAR_OK);
+  bool lanWait = btlLink && !btlOver && btlLinkSubmitted();
+  if (btlLink && !btlOver && !lanWait && !btlMsgCount) {
+    gfx->fillRoundRect(153, 260, 160, 28, 8, UI_BAR_OK);
     gfx->setTextColor(UI_BG_DAY);
     gfx->setTextSize(1);
-    gfx->setCursor(CX - 27, 269);
-    gfx->print("YOUR TURN");
+    gfx->setCursor(CX - 48, 269);
+    gfx->print("CHOOSE YOUR MOVE");
   }
   if (lanWait && !btlMsgCount) {
     gfx->fillRoundRect(BTL_GRID_X, BTL_GRID_Y, 328, BTL_CELL_H * 2 + 8, 12, UI_WHITE);
@@ -4069,8 +4066,9 @@ void battleTap(int16_t x, int16_t y) {
     if (btlSwapWho >= 0) btlDoSwap();   // the replacement arrives on this beat
     return;
   }
-  if (btlLink && !btlLinkCanAct()) {
-    // Leaving remains possible while waiting; attacks and switches do not.
+  if (btlLinkSubmitted()) {
+    // Once an action is locked, taps cannot replace or repeat it.
+    // The player can still leave using RUN's usual touch target.
     if (btlMenu == 0 && btlCellHit(3, x, y)) btlRun();
     return;
   }
@@ -4100,8 +4098,14 @@ void battleTap(int16_t x, int16_t y) {
         btlMenu = 0;
         return;
       }
-      if (btlLink) btlMenu = 0; // host switches during its own turn
+      if (btlLink) {            // host: latched like a move, see btlLinkPoll
+        btlMyAct = LINK_ACT_SWITCH_TO(i);
+        btlMenu = 0;
+        if (!lan.hasPeerAct()) return;
+        btlMyAct = 0;
+      }
       btlSwitchTo(i);
+      if (btlLink && !btlOver) sfxPlay(SFX_TAP);
       return;
     }
     btlMenu = 0;      // anywhere else backs out
@@ -4117,8 +4121,16 @@ void battleTap(int16_t x, int16_t y) {
       lan.sendAct(LINK_ACT_MOVE(i));   // the guest asks; the host decides
       return;
     }
-    // The host acts immediately on even turns; the guest's move arrives later.
+    if (btlLink) {
+      // Latched, not discarded. The host used to throw the tap away when the
+      // rival had not chosen yet, so you had to keep jabbing at the move until
+      // the timing happened to line up.
+      btlMyAct = LINK_ACT_MOVE(i);
+      if (!lan.hasPeerAct()) return;   // resolved by btlLinkPoll when it lands
+      btlMyAct = 0;
+    }
     btlResolve(btlYou.moves[i]);
+    if (btlLink && !btlOver) sfxPlay(SFX_TAP);
     return;
   }
   btlMenu = 0;        // a tap off the grid goes back to FIGHT/POKEMON
