@@ -136,6 +136,8 @@ void Link::begin(bool host, const char *myName) {
   theirsExpected = 0;
   theirsGot = 0;
   turn = 0;
+  battleSeq = 0;
+  battleActive = false;
   pendingAct = 0;
   resultN = 0;
   resultNew = false;
@@ -166,27 +168,41 @@ void Link::start() {
   sendHello(*this);
 }
 
+void Link::startBattle() {
+  if (state != LINK_READY || battleActive) return;
+  battleSeq++;
+  battleActive = true;
+  pendingAct = 0;
+  resultN = 0;
+  resultNew = false;
+  txLive = false;
+}
+
 void Link::sendAct(uint8_t act) {
-  if (state != LINK_READY || !act) return;
-  uint8_t b[2] = { turn, act };
-  put(*this, LM_ACT, b, 2, true);   // kept: the host may never have heard it
+  if (state != LINK_READY || !battleActive || !act) return;
+  uint8_t b[4] = { turn, (uint8_t)battleSeq,
+                   (uint8_t)(battleSeq >> 8), act };
+  put(*this, LM_ACT, b, 4, true);   // kept: the host may never have heard it
   if (!isHost) state = LINK_WAITING;
 }
 
 void Link::sendResult(const uint8_t *blob, uint8_t len) {
-  if (!isHost) return;                 // only the host resolves anything
-  if (len > LINK_MAX_PAYLOAD - 1) return;
+  if (!isHost || !battleActive) return;
+  if (len > LINK_MAX_PAYLOAD - 3) return;
   uint8_t b[LINK_MAX_PAYLOAD];
   b[0] = turn;
-  memcpy(b + 1, blob, len);
-  put(*this, LM_RESULT, b, (uint8_t)(len + 1), true);
+  b[1] = (uint8_t)battleSeq;
+  b[2] = (uint8_t)(battleSeq >> 8);
+  memcpy(b + 3, blob, len);
+  put(*this, LM_RESULT, b, (uint8_t)(len + 3), true);
   turn++;                              // this exchange is finished
   pendingAct = 0;
 }
 
 void Link::sendEnd(bool hostWon) {
-  uint8_t b = hostWon ? 1 : 0;
-  put(*this, LM_END, &b, 1, true);
+  uint8_t b[3] = { (uint8_t)battleSeq, (uint8_t)(battleSeq >> 8),
+                   (uint8_t)(hostWon ? 1 : 0) };
+  put(*this, LM_END, b, 3, true);
   youWon = isHost ? hostWon : !hostWon;
   state = LINK_DONE;
 }
@@ -199,8 +215,9 @@ void Link::sendBye() {
 }
 
 void Link::sendRematch() {
-  if (!theirsN || !mineN) return;
-  put(*this, LM_REMATCH, nullptr, 0);
+  if (!theirsN || !mineN || state != LINK_DONE) return;
+  uint8_t b[2] = { (uint8_t)battleSeq, (uint8_t)(battleSeq >> 8) };
+  put(*this, LM_REMATCH, b, 2);
   rearm();
 }
 
@@ -209,6 +226,7 @@ void Link::sendRematch() {
 // lose a packet.
 void Link::rearm() {
   turn = 0;
+  battleActive = false;
   pendingAct = 0;
   resultN = 0;
   resultNew = false;
@@ -338,25 +356,34 @@ void Link::onPacket(const uint8_t *buf, uint8_t len) {
       return;
     }
     case LM_ACT:
-      if (!isHost || n < 2) return;    // only the host acts on an action
+      if (!isHost || !battleActive || state != LINK_READY || n != 4) return;
+      if (((uint16_t)body[1] | ((uint16_t)body[2] << 8)) != battleSeq)
+        return;    // only the host acts on an action
       // A resend of a turn already resolved is not a new choice. Without this
       // the retransmissions that make the link reliable would themselves
       // desync it -- every repeat would spend another turn.
       if (body[0] != turn) return;
-      if (!body[1]) return;            // 0 is not an action, it means silence
+      if (!body[3]) return;
+      if (pendingAct) return;          // lock first legal choice this round
+      if (!LINK_ACT_IS_SWITCH(body[3]) &&
+          (body[3] < 1 || body[3] > MOVE_SLOTS)) return;
+      if (LINK_ACT_IS_SWITCH(body[3]) &&
+          LINK_ACT_SLOT(body[3]) >= theirsN) return;
       sawRx = true;
-      pendingAct = body[1];
+      pendingAct = body[3];
       return;
     case LM_RESULT: {
-      if (isHost || n < 1) return;     // the host never receives results
+      if (isHost || !battleActive || n < 3) return;
+      if (((uint16_t)body[1] | ((uint16_t)body[2] << 8)) != battleSeq)
+        return;
       uint8_t t = body[0];
       // Absolute state, so a result from a LATER turn is still safe to apply:
       // we simply missed one, and skip its narration. An earlier one is a
       // duplicate and is dropped.
       if ((uint8_t)(t - turn) > 128) return;
       sawRx = true;
-      resultN = (uint8_t)(n - 1);
-      if (resultN) memcpy(result, body + 1, resultN);
+      resultN = (uint8_t)(n - 3);
+      if (resultN) memcpy(result, body + 3, resultN);
       resultNew = true;
       turn = (uint8_t)(t + 1);
       txLive = false;                  // our action got through
@@ -364,9 +391,10 @@ void Link::onPacket(const uint8_t *buf, uint8_t len) {
       return;
     }
     case LM_END:
-      if (n < 1) return;
+      if (!battleActive || n != 3 ||
+          (((uint16_t)body[0] | ((uint16_t)body[1] << 8)) != battleSeq)) return;
       sawRx = true;
-      youWon = isHost ? (body[0] != 0) : (body[0] == 0);
+      youWon = isHost ? (body[2] != 0) : (body[2] == 0);
       txLive = false;
       state = LINK_DONE;
       return;
@@ -376,7 +404,9 @@ void Link::onPacket(const uint8_t *buf, uint8_t len) {
       state = LINK_LOST;
       return;
     case LM_REMATCH:
-      if (n != 0 || !theirsN || !mineN) return;
+      if (state != LINK_DONE || n != 2 || !theirsN || !mineN ||
+          (((uint16_t)body[0] | ((uint16_t)body[1] << 8)) != battleSeq))
+        return;
       rearm();
       return;
     case LM_KEEPALIVE:
