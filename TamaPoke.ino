@@ -3338,7 +3338,9 @@ static bool btlLinkSubmitted() {
 }
 
 void startLinkBattle() {
-  if (!lan.mineN || !lan.theirsN) return;
+  if (!lan.ready() || !lan.mineN || !lan.theirsN) return;
+  lan.startBattle();
+  if (!lan.battleActive) return; // ignore packets until both enter the fight
   // Rebuilt from lan.mine, NOT from squadMask. What we fight with has to be
   // exactly what the peer was told we have -- rebuilding from the party would
   // silently diverge if anything changed between offering and starting.
