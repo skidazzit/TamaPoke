@@ -119,6 +119,18 @@
     <p class="note"><b>Leave “Erase device” unchecked.</b> The firmware avoids NVS and FFAT save areas. Back up your save first. Two-board gameplay testing is still pending.</p>
   </div>
 
+  <h2>LAN Battle Audio Stop (Beta)</h2>
+  <div class="step" style="border-left:4px solid #58b868;background:#f5fff5">
+    <p><b>🔊 LAN audio fix:</b> battle music now stops when the result screen closes or you exit the LAN screen.</p>
+    <p>Also includes opponent-name fixes, REMATCH / EXIT, battle records and LAN protocol v6. <b>Flash both boards</b> for LAN play.</p>
+    <esp-web-install-button manifest="manifest-lan-audio-stop.json">
+      <button slot="activate">🔊 Install LAN Audio Fix Beta</button>
+      <span slot="unsupported">Browser not supported (use Chrome/Edge).</span>
+      <span slot="not-allowed">Needs HTTPS.</span>
+    </esp-web-install-button>
+    <p class="note"><b>Leave “Erase device” unchecked.</b> Back up your save first. The firmware does not write over NVS or FFAT; two-board audio testing is still needed.</p>
+  </div>
+
   <h2>Optional: Custom OTA/app update (beta)</h2>
   <div class="step" style="border-left:4px solid #4f93c4">
     <p>Already running TamaPoke? Start with <b>Connect &amp; inspect board</b>.
