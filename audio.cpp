@@ -215,6 +215,8 @@ static void audioTask(void *) {
     }
 
     if (m == MUS_NONE) {
+      // Release active music notes when a battle ends.
+      if (playing != MUS_NONE) gSyn.allOff();
       if (ampOn && !gSyn.busy()) { digitalWrite(PA, LOW); ampOn = false; }
       playing = MUS_NONE; mi1 = mi2 = 0; at1 = at2 = clock = 0;
       continue;
