@@ -4692,20 +4692,30 @@ void renderLan() {
     gfx->setCursor(CX - strlen(T(S_FIGHT)) * 6, 240);
     gfx->print(T(S_FIGHT));
   } else if (lan.state == LINK_DONE) {
-    // Both squads are still in hand on both devices, so going again costs one
-    // packet -- there is nothing to re-exchange.
+    // Ask what to do next. A rematch keeps both squads and the radio link;
+    // EXIT tells the peer we are leaving instead of making it time out.
     if (lan.peerName[0]) {
       gfx->setTextColor(UI_INK);
       gfx->setTextSize(2);
-      gfx->setCursor(CX - (int)strlen(lan.peerName) * 6, 140);
+      gfx->setCursor(CX - (int)strlen(lan.peerName) * 6, 122);
       gfx->print(lan.peerName);
     }
-    gfx->fillRoundRect(120, 220, 226, 56, 12, UI_BG_DAY);
-    gfx->drawRoundRect(120, 220, 226, 56, 12, UI_INK);
     gfx->setTextColor(UI_INK);
     gfx->setTextSize(2);
-    gfx->setCursor(CX - strlen(T(S_LAN_REMATCH)) * 6, 240);
+    gfx->setCursor(CX - 96, 160);
+    gfx->print("BATTLE AGAIN?");
+    gfx->fillRoundRect(120, 205, 226, 56, 12, UI_BAR_OK);
+    gfx->drawRoundRect(120, 205, 226, 56, 12, UI_INK);
+    gfx->setTextColor(UI_BG_DAY);
+    gfx->setTextSize(2);
+    gfx->setCursor(CX - strlen(T(S_LAN_REMATCH)) * 6, 225);
     gfx->print(T(S_LAN_REMATCH));
+    gfx->fillRoundRect(120, 279, 226, 56, 12, UI_TRACK);
+    gfx->drawRoundRect(120, 279, 226, 56, 12, UI_INK);
+    gfx->setTextColor(UI_INK);
+    gfx->setTextSize(2);
+    gfx->setCursor(CX - 24, 299);
+    gfx->print("EXIT");
   }
   gfx->setTextColor(UI_TRACK);
   gfx->setTextSize(2);
@@ -4771,9 +4781,15 @@ void lanTap(int16_t x, int16_t y) {
       return;
     }
   } else if (lan.state == LINK_DONE) {
-    if (x >= 120 && x <= 346 && y >= 220 && y <= 276) {
+    if (x >= 120 && x <= 346 && y >= 205 && y <= 261) {
       sfxPlay(SFX_TAP);
       lan.sendRematch();      // both sides go back to READY and tap FIGHT
+      return;
+    }
+    if (x >= 120 && x <= 346 && y >= 279 && y <= 335) {
+      sfxPlay(SFX_TAP);
+      lanLeave();
+      lanOpen = false;
       return;
     }
   }
