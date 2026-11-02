@@ -32,7 +32,7 @@
 // whole handshake without a radio, and a deliberately lossy transport exercises
 // all of the above. Only the radio itself is unverifiable here.
 
-#define LINK_PROTO 4        // alternating turns; v3 peers use simultaneous actions
+#define LINK_PROTO 5        // Pokémon-style simultaneous choices; reject v4 peers
 #define LINK_MAX_PAYLOAD 200
 #define LINK_NAME_LEN 12
 
